@@ -1,474 +1,556 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Warehouse Stock Manager</title>
-<style>
-  :root{
-    --bg:#f5f6f8;--card:#fff;--text:#1d2330;--muted:#6b7385;--line:#e3e6ec;
-    --brand:#2457d6;--brand-d:#1b44a8;--ok:#177a3c;--ok-bg:#e3f5e9;
-    --low:#9a6200;--low-bg:#fff1d6;--out:#b42318;--out-bg:#fde4e1;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:15px}
-  header{background:var(--card);border-bottom:1px solid var(--line);padding:14px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
-  h1{font-size:19px;margin:0}
-  main{max-width:1100px;margin:0 auto;padding:20px}
-  .btn{border:1px solid var(--line);background:var(--card);color:var(--text);padding:8px 14px;border-radius:8px;font-size:14px;cursor:pointer}
-  .btn:hover{background:#eef0f4}
-  .btn:disabled{opacity:.5;cursor:not-allowed}
-  .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
-  .btn.primary:hover{background:var(--brand-d)}
-  .btn.sm{padding:5px 10px;font-size:13px}
-  .btn.danger{color:var(--out)}
-  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
-  .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
-  .stat b{display:block;font-size:26px;margin-top:4px}
-  .stat span{color:var(--muted);font-size:13px}
-  .stat.warn b{color:var(--low)} .stat.bad b{color:var(--out)}
-  .alertbar{background:var(--out-bg);border:1px solid #f4b8b1;color:var(--out);border-radius:10px;padding:10px 14px;margin-bottom:16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
-  .alertbar[hidden]{display:none}
-  .alertbar .sub{color:#7a2b22;font-size:13px}
-  .tabs{display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--line);overflow-x:auto}
-  .tab{padding:9px 16px;cursor:pointer;border:none;background:none;font-size:15px;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap}
-  .tab.active{color:var(--brand);border-bottom-color:var(--brand);font-weight:600}
-  .toolbar{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px}
-  input,select,textarea{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--text);width:100%}
-  .toolbar input,.toolbar select{width:auto;flex:1;min-width:150px}
-  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:auto}
-  table{border-collapse:collapse;width:100%;min-width:640px}
-  th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
-  th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);background:#fafbfc}
-  tr:last-child td{border-bottom:none}
-  .qty{font-weight:700;font-size:16px}
-  .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
-  .b-ok{background:var(--ok-bg);color:var(--ok)} .b-low{background:var(--low-bg);color:var(--low)} .b-out{background:var(--out-bg);color:var(--out)}
-  .b-exp{background:#fce7f3;color:#9d174d}
-  .in{color:var(--ok);font-weight:600} .outc{color:var(--out);font-weight:600}
-  .muted{color:var(--muted);font-size:13px}
-  .actions{display:flex;gap:6px;flex-wrap:wrap}
-  .empty{padding:40px;text-align:center;color:var(--muted)}
-  dialog{border:none;border-radius:12px;padding:0;width:min(440px,94vw);box-shadow:0 20px 60px rgba(0,0,0,.25)}
-  dialog::backdrop{background:rgba(20,25,40,.45)}
-  form.dlg{padding:20px;display:grid;gap:12px}
-  form.dlg h2{margin:0;font-size:18px}
-  label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
-  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .dlg-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px;flex-wrap:wrap}
-  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1d2330;color:#fff;padding:10px 18px;border-radius:8px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s ease}
-  .toast.show{opacity:1}
-  .hint{background:#eef3ff;border:1px solid #cfdcff;border-radius:8px;padding:10px 12px;font-size:13px;color:#2a3f78;line-height:1.5}
-  .chk{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text)}
-  .chk input{width:auto}
-  .ok-t{color:var(--ok);font-weight:600} .fail-t{color:var(--out);font-weight:600}
-  .msgcell{white-space:pre-line;max-width:320px}
-  @media(max-width:600px){main{padding:12px}.row2{grid-template-columns:1fr}}
-</style>
-</head>
-<body>
-<header>
-  <h1>📦 Warehouse Stock Manager</h1>
-  <div class="actions">
-    <button class="btn" id="btnAlerts">🔔 WhatsApp alerts</button>
-    <button class="btn" id="btnExpiryCheck">⏰ Check expiry alerts</button>
-    <button class="btn" id="btnExport">Export CSV</button>
-    <button class="btn" id="btnBackup">Backup</button>
-    <button class="btn" id="btnLogout">Log out</button>
-    <button class="btn primary" id="btnAdd">+ Add Product</button>
-  </div>
-</header>
+"""Warehouse stock logic: database storage (SQLite or Postgres) + alerts dispatch.
 
-<main>
-  <div class="alertbar" id="alertBar" hidden></div>
-  <div class="cards" id="cards"></div>
+Pass a file path to Store() to use SQLite, or a postgres:// URL to use Postgres
+(for hosting, e.g. Neon). Everything else in the app is identical for both.
+"""
+import os
+import re
+import smtplib
+import sqlite3
+import urllib.error
+import urllib.parse
+import urllib.request
+from contextlib import contextmanager
+from datetime import date, datetime, timezone
+from email.message import EmailMessage
 
-  <div class="tabs">
-    <button class="tab active" data-tab="stock">Current Stock</button>
-    <button class="tab" data-tab="history">Stock History</button>
-    <button class="tab" data-tab="alerts">Alert Log</button>
-  </div>
+try:  # only needed when a postgres:// URL is used
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:  # pragma: no cover
+    psycopg = None
+    dict_row = None
 
-  <section id="tab-stock">
-    <div class="toolbar">
-      <input id="search" placeholder="Search name, SKU, category…">
-      <select id="filter">
-        <option value="all">All status</option>
-        <option value="in">In stock</option>
-        <option value="low">Low stock</option>
-        <option value="out">Out of stock</option>
-      </select>
-    </div>
-    <div class="panel"><table>
-      <thead><tr><th>Product</th><th>Category</th><th>In stock</th><th>Expiry</th><th>Status</th><th>Last purchased</th><th>Actions</th></tr></thead>
-      <tbody id="stockBody"></tbody>
-    </table><div class="empty" id="stockEmpty" hidden></div></div>
-  </section>
 
-  <section id="tab-history" hidden>
-    <div class="toolbar">
-      <select id="hFilter"><option value="all">All products</option></select>
-      <select id="hType">
-        <option value="all">All movements</option>
-        <option value="purchase">Purchases (stock in)</option>
-        <option value="issue">Stock out</option>
-      </select>
-    </div>
-    <div class="panel"><table>
-      <thead><tr><th>Date</th><th>Product</th><th>Movement</th><th>Qty</th><th>Balance after</th><th>Supplier / Note</th></tr></thead>
-      <tbody id="histBody"></tbody>
-    </table><div class="empty" id="histEmpty" hidden>No movements yet.</div></div>
-  </section>
+class StoreError(Exception):
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.message = message
+        self.status = status
 
-  <section id="tab-alerts" hidden>
-    <div class="panel"><table>
-      <thead><tr><th>Time</th><th>Message</th><th>Result</th><th>Details</th></tr></thead>
-      <tbody id="alertBody"></tbody>
-    </table><div class="empty" id="alertEmpty" hidden>No alerts sent yet.</div></div>
-  </section>
-</main>
 
-<dialog id="dlgLogin"><form class="dlg" id="formLogin">
-  <h2>🔒 Log in</h2>
-  <label>Password<input id="lPass" type="password" autocomplete="current-password" required></label>
-  <div class="dlg-actions"><button class="btn primary">Log in</button></div>
-</form></dialog>
+SCHEMA_SQLITE = [
+    """CREATE TABLE IF NOT EXISTS products(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      sku TEXT NOT NULL DEFAULT '',
+      cat TEXT NOT NULL DEFAULT '',
+      unit TEXT NOT NULL DEFAULT 'pcs',
+      min_qty INTEGER NOT NULL DEFAULT 10,
+      qty INTEGER NOT NULL DEFAULT 0 CHECK(qty >= 0),
+      expiry_date TEXT DEFAULT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS movements(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('purchase','issue')),
+      qty INTEGER NOT NULL,
+      balance_after INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      supplier TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS settings(
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS alerts(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at TEXT NOT NULL,
+      message TEXT NOT NULL,
+      ok INTEGER NOT NULL,
+      detail TEXT NOT NULL DEFAULT ''
+    )""",
+]
 
-<dialog id="dlgProduct"><form class="dlg" id="formProduct">
-  <h2 id="productTitle">Add Product</h2>
-  <label>Product name *<input id="pName" required maxlength="80"></label>
-  <div class="row2">
-    <label>SKU / Code<input id="pSku" maxlength="40"></label>
-    <label>Category<input id="pCat" maxlength="40" placeholder="e.g. Grocery"></label>
-  </div>
-  <div class="row2">
-    <label>Unit<input id="pUnit" value="pcs" maxlength="12"></label>
-    <label>Low-stock level<input id="pMin" type="number" min="0" value="10"></label>
-  </div>
-  <div class="row2">
-    <label>Opening quantity<input id="pQty" type="number" min="0" value="0"></label>
-    <label>Purchase date<input id="pDate" type="date"></label>
-  </div>
-  <label>Expiry date<input id="pExpiry" type="date"></label>
-  <div class="dlg-actions">
-    <button type="button" class="btn" data-close>Cancel</button>
-    <button class="btn primary">Save</button>
-  </div>
-</form></dialog>
+SCHEMA_PG = [
+    s.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY").replace(
+        "product_id INTEGER", "product_id BIGINT"
+    )
+    for s in SCHEMA_SQLITE
+]
 
-<dialog id="dlgMove"><form class="dlg" id="formMove">
-  <h2 id="moveTitle"></h2>
-  <div class="hint" id="moveHint"></div>
-  <div class="row2">
-    <label>Quantity *<input id="mQty" type="number" min="1" required></label>
-    <label>Date<input id="mDate" type="date" required></label>
-  </div>
-  <label id="supplierWrap">Supplier<input id="mSupplier" maxlength="80"></label>
-  <label>Note<input id="mNote" maxlength="120"></label>
-  <div class="dlg-actions">
-    <button type="button" class="btn" data-close>Cancel</button>
-    <button class="btn primary" id="moveSave">Save</button>
-  </div>
-</form></dialog>
+PHONE_RE = re.compile(r"^\+\d{8,15}$")
+APIKEY_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 
-<dialog id="dlgSettings"><form class="dlg" id="formSettings">
-  <h2>🔔 WhatsApp alerts</h2>
-  <div class="hint">
-    A WhatsApp message is sent automatically when stock runs out or a product is near expiry. One-time setup (free):
-    <ol style="margin:6px 0 0;padding-left:18px">
-      <li>Open <strong>callmebot.com</strong> and follow its WhatsApp setup.</li>
-      <li>Enter your WhatsApp number and CallMeBot API key below.</li>
-    </ol>
-  </div>
-  <label>WhatsApp number (with country code) *<input id="sPhone" type="tel" placeholder="e.g. 9876543210 or +919876543210" maxlength="25"></label>
-  <label>CallMeBot API key<input id="sKey" type="password" autocomplete="off" maxlength="40"></label>
-  <label class="chk"><input type="checkbox" id="sLow"> Also alert me when stock is low</label>
-  <label>Expiry alert window (days before expiry)<input id="sExpiryDays" type="number" min="0" max="365" value="7"></label>
-  <div class="dlg-actions">
-    <button type="button" class="btn" data-close>Close</button>
-    <button type="button" class="btn" id="btnTest">Save &amp; send test</button>
-    <button class="btn primary">Save</button>
-  </div>
-</form></dialog>
 
-<div class="toast" id="toast"></div>
+def now_iso():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-<script>
-(function(){
-  const TOKEN_KEY = "wsm_token";
-  let token = ""; try{ token = localStorage.getItem(TOKEN_KEY) || ""; }catch(e){}
-  let state = {products:[], log:[], alerts:[], settings:{phone:"", low:false, expiry_days:7, apikey_set:false}};
-  let moveCtx = null, editId = null;
 
-  const $ = s => document.querySelector(s);
-  const esc = s => String(s==null?"":s).replace(/[&<>\"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
-  const today = () => { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
-  const fmtDate = s => { if(!s) return "—"; const [y,m,d]=s.split("-"); return new Date(y,m-1,d).toLocaleDateString(undefined,{day:"2-digit",month:"short",year:"numeric"}); };
-  const fmtTime = s => { const d=new Date(s); return isNaN(d) ? s : d.toLocaleString(undefined,{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); };
-  const find = id => state.products.find(p => p.id===id);
-  const label = {in:"In stock",low:"Low stock",out:"Out of stock"};
-  const cls = {in:"b-ok",low:"b-low",out:"b-out"};
-  const alertsOn = () => !!(state.settings.phone && state.settings.apikey_set);
+def status(qty, min_qty):
+    if qty <= 0:
+        return "out"
+    if qty <= min_qty:
+        return "low"
+    return "in"
 
-  async function api(path, method, body){
-    const headers = {"Content-Type":"application/json"};
-    if(token) headers.Authorization = "Bearer " + token;
-    let r;
-    try{ r = await fetch("/api"+path, {method:method||"GET", headers, body: body?JSON.stringify(body):undefined}); }
-    catch(e){ throw new Error("Cannot reach the server. Check that it is running."); }
-    let data = null; try{ data = await r.json(); }catch(e){}
-    if(r.status===401 && path!=="/login"){ showLogin(); const e=new Error("login"); e.silent=true; throw e; }
-    if(!r.ok){
-      const d = data && data.detail;
-      throw new Error(typeof d==="string" ? d : Array.isArray(d) ? "Please check the values you entered" : "Request failed ("+r.status+")");
-    }
-    return data;
-  }
-  async function run(fn){
-    try{ await fn(); }catch(e){ if(!e.silent) toast(e.message || "Something went wrong"); }
-  }
-  async function loadAll(){
-    const [products, log, alerts, settings] = await Promise.all([
-      api("/products"), api("/log"), api("/alerts"), api("/settings")]);
-    state = {products, log, alerts, settings};
-    render();
-  }
 
-  function showLogin(){
-    token = ""; try{ localStorage.removeItem(TOKEN_KEY); }catch(e){}
-    $("#lPass").value = "";
-    if(!$("#dlgLogin").open) $("#dlgLogin").showModal();
-  }
-  $("#dlgLogin").addEventListener("cancel", e=>e.preventDefault());
-  $("#formLogin").addEventListener("submit", e=>{
-    e.preventDefault();
-    run(async()=>{
-      const r = await api("/login","POST",{password:$("#lPass").value});
-      token = r.token; try{ localStorage.setItem(TOKEN_KEY, token); }catch(_){ }
-      $("#dlgLogin").close();
-      await loadAll();
-    });
-  });
-  $("#btnLogout").onclick = ()=>{ state = {products:[],log:[],alerts:[],settings:{phone:"",low:false,expiry_days:7,apikey_set:false}}; render(); showLogin(); };
+def days_until_expiry(value):
+    if not value:
+        return None
+    try:
+        expiry = date.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return (expiry - date.today()).days
 
-  function render(){
-    const P = state.products;
-    const expiring = P.filter(p => p.days_to_expiry !== null && p.days_to_expiry <= state.settings.expiry_days).length;
-    $("#cards").innerHTML =
-      `<div class="stat"><span>Products</span><b>${P.length}</b></div>
-       <div class="stat"><span>Total units in stock</span><b>${P.reduce((s,p)=>s+p.qty,0)}</b></div>
-       <div class="stat warn"><span>Low stock</span><b>${P.filter(p=>p.status==="low").length}</b></div>
-       <div class="stat bad"><span>Out of stock</span><b>${P.filter(p=>p.status==="out").length}</b></div>
-       <div class="stat"><span>Expiring soon</span><b>${expiring}</b></div>`;
 
-    const need = P.filter(p => p.status==="out" || (state.settings.low && p.status==="low") || (p.days_to_expiry !== null && p.days_to_expiry <= state.settings.expiry_days));
-    const bar = $("#alertBar");
-    bar.hidden = need.length===0;
-    if(need.length){
-      const names = [...new Set(need.map(p => p.name))];
-      bar.innerHTML = `<div><div>⚠ ${names.length} product${names.length>1?"s":""} need${names.length>1?"":"s"} attention: <strong>${esc(names.join(", "))}</strong></div>
-        <div class="sub">${alertsOn() ? "WhatsApp alerts are switched on." : "WhatsApp alerts are not set up yet."}</div></div>
-        ${alertsOn() ? "" : '<button class="btn sm primary" id="btnSetup">Set up alerts</button>'}`;
-    }
+def _text(value, field, maxlen, required=False):
+    value = (value or "").strip()
+    if required and not value:
+        raise StoreError(f"{field} is required")
+    if len(value) > maxlen:
+        raise StoreError(f"{field} is too long (max {maxlen} characters)")
+    return value
 
-    const q = $("#search").value.trim().toLowerCase(), f = $("#filter").value;
-    const order = {out:0,low:1,in:2};
-    const rows = P.filter(p => (!q || [p.name,p.sku,p.cat].join(" ").toLowerCase().includes(q)) && (f==="all" || p.status===f))
-      .sort((a,b)=> order[a.status]-order[b.status] || a.name.localeCompare(b.name));
-    $("#stockBody").innerHTML = rows.map(p=>{
-      const expiry = p.expiry_date ? fmtDate(p.expiry_date) : "—";
-      let expiryText = "—";
-      if(p.days_to_expiry !== null){
-        expiryText = p.days_to_expiry < 0 ? `${Math.abs(p.days_to_expiry)}d overdue` : `${p.days_to_expiry}d left`;
-      }
-      const expClass = p.days_to_expiry !== null && p.days_to_expiry <= state.settings.expiry_days ? "b-exp" : "";
-      return `<tr>
-        <td><strong>${esc(p.name)}</strong><div class="muted">${esc(p.sku)}</div></td>
-        <td>${esc(p.cat||"—")}</td>
-        <td><span class="qty">${p.qty}</span> <span class="muted">${esc(p.unit)}</span></td>
-        <td><span class="badge ${expClass}">${expClass ? esc(expiryText) : esc(expiry)}</span></td>
-        <td><span class="badge ${cls[p.status]}">${label[p.status]}</span></td>
-        <td>${fmtDate(p.last_purchase)}</td>
-        <td><div class="actions">
-          <button class="btn sm primary" data-act="buy" data-id="${p.id}">+ Restock</button>
-          <button class="btn sm" data-act="issue" data-id="${p.id}" ${p.qty<=0?"disabled":""}>− Stock out</button>
-          <button class="btn sm" data-act="edit" data-id="${p.id}">Edit</button>
-          <button class="btn sm danger" data-act="del" data-id="${p.id}">Delete</button>
-        </div></td></tr>`;
-    }).join("");
-    const empty = $("#stockEmpty");
-    empty.hidden = rows.length>0;
-    if(!rows.length) empty.textContent = P.length ? "No products match your search." : "No products yet. Click “+ Add Product” to start.";
 
-    const hSel = $("#hFilter"), cur = hSel.value;
-    hSel.innerHTML = '<option value="all">All products</option>' + P.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("");
-    hSel.value = P.some(p=>String(p.id)===cur) ? cur : "all";
-    renderHistory();
-    renderAlerts();
-  }
-  function renderHistory(){
-    const pf = $("#hFilter").value, tf = $("#hType").value;
-    const rows = state.log.filter(l => (pf==="all" || String(l.product_id)===pf) && (tf==="all" || (tf==="purchase" ? l.type==="purchase" : l.type!=="purchase")));
-    $("#histBody").innerHTML = rows.map(l=>{
-      const isIn = l.type==="purchase";
-      const note = [l.supplier, l.note].filter(Boolean).map(esc).join(" · ") || "—";
-      return `<tr><td>${fmtDate(l.date)}</td><td>${esc(l.name)}</td>
-        <td>${isIn?'<span class="in">Stock in (purchase)</span>':'<span class="outc">Stock out</span>'}</td>
-        <td class="${isIn?"in":"outc"}">${isIn?"+":"−"}${l.qty}</td><td>${l.after}</td><td class="muted">${note}</td></tr>`;
-    }).join("");
-    $("#histEmpty").hidden = rows.length>0;
-  }
-  function renderAlerts(){
-    $("#alertBody").innerHTML = state.alerts.map(a=>`<tr>
-      <td>${fmtTime(a.time)}</td><td class="msgcell">${esc(a.message)}</td>
-      <td>${a.ok?'<span class="ok-t">Sent</span>':'<span class="fail-t">Failed</span>'}</td>
-      <td class="muted">${esc(a.detail)}</td></tr>`).join("");
-    $("#alertEmpty").hidden = state.alerts.length>0;
-  }
+def _int(value, field, lo, hi):
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        raise StoreError(f"{field} must be a whole number")
+    if not lo <= value <= hi:
+        raise StoreError(f"{field} must be between {lo} and {hi}")
+    return value
 
-  function openProduct(id){
-    editId = id || null;
-    const p = id ? find(id) : null;
-    $("#productTitle").textContent = p ? "Edit Product" : "Add Product";
-    $("#pName").value = p ? p.name : ""; $("#pSku").value = p ? p.sku : ""; $("#pCat").value = p ? p.cat : "";
-    $("#pUnit").value = p ? p.unit : "pcs"; $("#pMin").value = p ? p.min : 10;
-    $("#pQty").value = 0; $("#pDate").value = today(); $("#pExpiry").value = p && p.expiry_date ? p.expiry_date : "";
-    $("#dlgProduct").showModal();
-  }
-  $("#formProduct").addEventListener("submit", e=>{
-    e.preventDefault();
-    const body = {name:$("#pName").value.trim(), sku:$("#pSku").value.trim(), cat:$("#pCat").value.trim(),
-      unit:$("#pUnit").value.trim()||"pcs", min:parseInt($("#pMin").value)||0,
-      qty:parseInt($("#pQty").value)||0, date:$("#pDate").value||null,
-      expiry_date:$("#pExpiry").value||null};
-    run(async()=>{
-      if(editId) await api("/products/"+editId,"PUT",body); else await api("/products","POST",body);
-      $("#dlgProduct").close(); toast(editId?"Product updated":"Product added");
-      await loadAll();
-    });
-  });
 
-  function openMove(id,type){
-    const p = find(id); moveCtx = {id,type};
-    const buy = type==="purchase";
-    $("#moveTitle").textContent = (buy?"Restock: ":"Stock out: ") + p.name;
-    $("#moveHint").textContent = `Current stock: ${p.qty} ${p.unit}` + (buy && p.qty<=0 ? " — this product is finished. Record your new purchase below." : "");
-    $("#mQty").value = ""; $("#mQty").max = buy ? "" : p.qty;
-    $("#mDate").value = today(); $("#mSupplier").value = ""; $("#mNote").value = "";
-    $("#supplierWrap").hidden = !buy;
-    $("#moveSave").textContent = buy ? "Add stock" : "Remove stock";
-    $("#dlgMove").showModal();
-  }
-  $("#formMove").addEventListener("submit", e=>{
-    e.preventDefault();
-    const p = find(moveCtx.id), qty = parseInt($("#mQty").value), buy = moveCtx.type==="purchase";
-    if(!qty || qty<1){ toast("Enter a valid quantity"); return; }
-    if(!buy && qty>p.qty){ toast("Quantity exceeds stock on hand"); return; }
-    run(async()=>{
-      const r = await api("/products/"+p.id+"/move","POST",{type:moveCtx.type, qty, date:$("#mDate").value||null,
-        supplier: buy?$("#mSupplier").value.trim():"", note:$("#mNote").value.trim()});
-      $("#dlgMove").close();
-      let msg = buy ? `Added ${qty} ${p.unit} to ${p.name}` : `Removed ${qty} ${p.unit} from ${p.name}`;
-      if(r.alert==="queued") msg += " · WhatsApp alert is being sent";
-      if(r.alert==="not_configured") msg += " · set up WhatsApp alerts to be notified";
-      toast(msg);
-      await loadAll();
-      if(r.alert) setTimeout(()=>run(async()=>{ state.alerts = await api("/alerts"); renderAlerts(); }), 4000);
-    });
-  });
+def _date(value):
+    if not value:
+        return date.today().isoformat()
+    try:
+        return date.fromisoformat(str(value)).isoformat()
+    except ValueError:
+        raise StoreError("Date must look like 2026-11-09")
 
-  function normPhone(v){
-    v = String(v||"").replace(/[\s\-()]/g,"");
-    if(!v) return "";
-    if(v.startsWith("+")) return v;
-    const d = v.replace(/\D/g,"");
-    return d.length===10 ? "+91"+d : "+"+d;
-  }
-  function openSettings(){
-    $("#sPhone").value = state.settings.phone || "";
-    $("#sKey").value = ""; $("#sKey").placeholder = state.settings.apikey_set ? "Saved — leave blank to keep" : "Key from CallMeBot";
-    $("#sLow").checked = !!state.settings.low;
-    $("#sExpiryDays").value = state.settings.expiry_days ?? 7;
-    $("#dlgSettings").showModal();
-  }
-  async function saveSettings(){
-    const phone = normPhone($("#sPhone").value);
-    if(!phone){ throw new Error("Enter the WhatsApp number"); }
-    const key = $("#sKey").value.trim();
-    if(!key && !state.settings.apikey_set){ throw new Error("Enter the API key from CallMeBot"); }
-    const expiryDays = parseInt($("#sExpiryDays").value, 10) || 0;
-    state.settings = await api("/settings","PUT",{phone, apikey:key||null, low:$("#sLow").checked, expiry_days: expiryDays});
-    $("#sPhone").value = state.settings.phone; $("#sKey").value = ""; $("#sKey").placeholder = "Saved — leave blank to keep";
-    render();
-  }
-  $("#formSettings").addEventListener("submit", e=>{
-    e.preventDefault();
-    run(async()=>{ await saveSettings(); $("#dlgSettings").close(); toast("Alert settings saved"); });
-  });
-  $("#btnTest").onclick = ()=>run(async()=>{
-    await saveSettings();
-    const b = $("#btnTest"); b.disabled = true; b.textContent = "Sending…";
-    try{
-      const r = await api("/alerts/test","POST");
-      toast(r.ok ? "Test sent — check your WhatsApp" : "Test failed: " + (r.detail || "unknown error"));
-      state.alerts = await api("/alerts"); renderAlerts();
-    } finally { b.disabled = false; b.textContent = "Save & send test"; }
-  });
-  $("#btnAlerts").onclick = openSettings;
-  $("#alertBar").addEventListener("click", e=>{ if(e.target.closest("#btnSetup")) openSettings(); });
-  $("#btnExpiryCheck").onclick = ()=>run(async()=>{
-    const r = await api("/alerts/expiry-check","POST");
-    state.alerts = await api("/alerts");
-    render();
-    if(r.count){ toast(`${r.count} expiry alert${r.count>1?"s":""} checked`); }
-    else toast("No products are expiring soon");
-  });
 
-  $("#btnAdd").onclick = ()=>openProduct();
-  document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>b.closest("dialog").close());
-  $("#stockBody").addEventListener("click", e=>{
-    const b = e.target.closest("button[data-act]"); if(!b) return;
-    const id = parseInt(b.dataset.id), a = b.dataset.act;
-    if(a==="buy") openMove(id,"purchase");
-    else if(a==="issue") openMove(id,"issue");
-    else if(a==="edit") openProduct(id);
-    else if(a==="del"){
-      const p = find(id);
-      if(confirm(`Delete “${p.name}” and all its history? This cannot be undone.`))
-        run(async()=>{ await api("/products/"+id,"DELETE"); toast("Product deleted"); await loadAll(); });
-    }
-  });
-  ["#search","#filter"].forEach(s=>$(s).addEventListener("input",render));
-  ["#hFilter","#hType"].forEach(s=>$(s).addEventListener("input",renderHistory));
-  document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
-    document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===t));
-    ["stock","history","alerts"].forEach(n=>$("#tab-"+n).hidden = t.dataset.tab!==n);
-    if(t.dataset.tab==="alerts") run(async()=>{ state.alerts = await api("/alerts"); renderAlerts(); });
-  });
+def _expiry_date(value):
+    if value in (None, ""):
+        return None
+    return _date(value)
 
-  const csvCell = v => { v=String(v==null?"":v); if(/^[=+\-@]/.test(v)) v="'"+v; return '"'+v.replace(/"/g,'""')+'"'; };
-  $("#btnExport").onclick = ()=>{
-    const rows = [["Product","SKU","Category","Quantity","Unit","Expiry","Status","Last purchased"]];
-    state.products.forEach(p=>rows.push([p.name,p.sku,p.cat,p.qty,p.unit,p.expiry_date||"",label[p.status],p.last_purchase||""]));
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([rows.map(r=>r.map(csvCell).join(",")).join("\n")],{type:"text/csv"}));
-    a.download = "stock-"+today()+".csv"; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-  };
 
-  $("#btnBackup").onclick = ()=>run(async()=>{
-    const data = await api("/backup");
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
-    a.download = "warehouse-backup-"+today()+".json"; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-    toast("Backup downloaded — keep it somewhere safe");
-  });
+def build_message(name, qty, unit, state):
+    if state == "out":
+        line = f"{name} is OUT OF STOCK"
+    else:
+        line = f"{name} is running low: {qty} {unit} left"
+    return f"⚠ Warehouse stock alert\n{line}.\nPlease reorder."
 
-  let tt;
-  function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(tt); tt=setTimeout(()=>t.classList.remove("show"),3200); }
 
-  render();
-  if(token) run(loadAll); else showLogin();
-})();
-</script>
-</body>
-</html>
+def build_expiry_message(name, expiry_date, days_left):
+    if days_left < 0:
+        return f"⚠ Product expiry alert\n{name} expired on {expiry_date}. Please check stock and remove or replace it."
+    if days_left == 0:
+        return f"⚠ Product expiry alert\n{name} expires today ({expiry_date}). Please check stock."
+    return f"⚠ Product expiry alert\n{name} expires in {days_left} day(s) on {expiry_date}. Please check stock."
+
+
+def send_email(email_to, smtp_password, text, timeout=15):
+    """Send an alert by email via SMTP. Intended for personal free email accounts (Gmail, Outlook)."""
+    sender = os.environ.get("SMTP_FROM") or os.environ.get("SMTP_USER")
+    host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    port = int(os.environ.get("SMTP_PORT", "587"))
+    email_to = email_to or os.environ.get("ALERT_EMAIL_TO")
+    smtp_password = smtp_password or os.environ.get("SMTP_PASS") or os.environ.get("SMTP_PASSWORD")
+    if not sender or not email_to or not smtp_password:
+        return False, "SMTP email is not configured"
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = "Warehouse alert"
+        msg["From"] = sender
+        msg["To"] = email_to
+        msg.set_content(text)
+        with smtplib.SMTP(host, port, timeout=timeout) as server:
+            server.starttls()
+            server.login(sender, smtp_password)
+            server.send_message(msg)
+        return True, "Email sent"
+    except Exception as exc:  # pragma: no cover - depends on environment
+        return False, f"Email error: {type(exc).__name__}: {exc}"
+
+
+def send_whatsapp(phone, apikey, text, timeout=15):
+    """Send a WhatsApp message through the free CallMeBot API. Returns (ok, detail)."""
+    query = urllib.parse.urlencode(
+        {"phone": phone, "text": text, "apikey": apikey}, quote_via=urllib.parse.quote
+    )
+    url = "https://api.callmebot.com/whatsapp.php?" + query
+    req = urllib.request.Request(url, headers={"User-Agent": "warehouse-stock-manager"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read(2000).decode("utf-8", "replace")
+            body = re.sub(r"<[^>]+>", " ", body)
+            body = re.sub(r"\s+", " ", body).strip()[:200]
+            return 200 <= resp.status < 300, body or f"HTTP {resp.status}"
+    except urllib.error.HTTPError as e:
+        return False, f"HTTP {e.code}"
+    except urllib.error.URLError as e:
+        return False, f"Network error: {e.reason}"
+
+
+class _Conn:
+    """Thin wrapper so the Store code is the same for SQLite and Postgres."""
+
+    def __init__(self, raw, pg):
+        self.raw = raw
+        self.pg = pg
+
+    def _sql(self, sql):
+        return sql.replace("?", "%s") if self.pg else sql
+
+    def execute(self, sql, params=()):
+        return self.raw.execute(self._sql(sql), params)
+
+    def insert(self, sql, params=()):
+        """Run an INSERT and return the new row's id."""
+        if self.pg:
+            row = self.raw.execute(self._sql(sql) + " RETURNING id", params).fetchone()
+            return row["id"]
+        return self.raw.execute(sql, params).lastrowid
+
+
+class Store:
+    def __init__(self, target, sender=None):
+        self.target = target
+        self.pg = str(target).startswith(("postgres://", "postgresql://"))
+        if self.pg and psycopg is None:
+            raise RuntimeError(
+                "DATABASE_URL points to Postgres but the 'psycopg' package is not installed. "
+                "Run: pip install -r requirements.txt"
+            )
+        if sender is None:
+            self.sender = send_email
+        else:
+            self.sender = sender
+        with self._tx() as c:
+            for statement in (SCHEMA_PG if self.pg else SCHEMA_SQLITE):
+                c.execute(statement)
+        self._ensure_products_columns()
+        if not self.pg:
+            conn = sqlite3.connect(self.target, timeout=10)
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+            finally:
+                conn.close()
+
+    def _ensure_products_columns(self):
+        with self._tx() as c:
+            if self.pg:
+                try:
+                    rows = c.execute(
+                        "SELECT column_name FROM information_schema.columns WHERE table_name = 'products'"
+                    ).fetchall()
+                except sqlite3.OperationalError as exc:
+                    # The Postgres-path unit tests use SQLite as a driver stand-in. Its newly
+                    # created schema already includes expiry_date but has no information_schema.
+                    if "information_schema.columns" in str(exc):
+                        return
+                    raise
+                names = {r["column_name"] for r in rows}
+                if "expiry_date" not in names:
+                    c.execute("ALTER TABLE products ADD COLUMN expiry_date TEXT")
+            else:
+                rows = c.execute("PRAGMA table_info(products)").fetchall()
+                names = {r["name"] for r in rows}
+                if "expiry_date" not in names:
+                    c.execute("ALTER TABLE products ADD COLUMN expiry_date TEXT")
+
+    @contextmanager
+    def _tx(self):
+        if self.pg:
+            raw = psycopg.connect(
+                self.target, row_factory=dict_row, connect_timeout=30, prepare_threshold=None
+            )
+            try:
+                yield _Conn(raw, True)
+                raw.commit()
+            except BaseException:
+                raw.rollback()
+                raise
+            finally:
+                raw.close()
+        else:
+            raw = sqlite3.connect(self.target, timeout=10, isolation_level=None)
+            raw.row_factory = sqlite3.Row
+            try:
+                raw.execute("BEGIN IMMEDIATE")
+                yield _Conn(raw, False)
+                raw.execute("COMMIT")
+            except BaseException:
+                if raw.in_transaction:
+                    raw.execute("ROLLBACK")
+                raise
+            finally:
+                raw.close()
+
+    # ---------------- products ----------------
+    @staticmethod
+    def _product(row, last_purchase=None):
+        expiry = row["expiry_date"]
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "sku": row["sku"],
+            "cat": row["cat"],
+            "unit": row["unit"],
+            "min": row["min_qty"],
+            "qty": row["qty"],
+            "expiry_date": expiry,
+            "days_to_expiry": days_until_expiry(expiry),
+            "status": status(row["qty"], row["min_qty"]),
+            "last_purchase": last_purchase,
+        }
+
+    def list_products(self):
+        with self._tx() as c:
+            rows = c.execute("SELECT * FROM products ORDER BY LOWER(name), id").fetchall()
+            last = {
+                r["product_id"]: r["d"]
+                for r in c.execute(
+                    "SELECT product_id, MAX(date) AS d FROM movements "
+                    "WHERE type='purchase' GROUP BY product_id"
+                ).fetchall()
+            }
+        return [self._product(r, last.get(r["id"])) for r in rows]
+
+    def _get_product(self, c, pid, lock=False):
+        sql = "SELECT * FROM products WHERE id=?"
+        if lock and c.pg:
+            sql += " FOR UPDATE"
+        row = c.execute(sql, (pid,)).fetchone()
+        if not row:
+            raise StoreError("Product not found", 404)
+        return row
+
+    def create_product(self, name, sku="", cat="", unit="pcs", min_qty=10, qty=0, when=None, expiry_date=None):
+        name = _text(name, "Product name", 80, required=True)
+        sku = _text(sku, "SKU", 40)
+        cat = _text(cat, "Category", 40)
+        unit = _text(unit, "Unit", 12) or "pcs"
+        min_qty = _int(min_qty, "Low-stock level", 0, 1_000_000)
+        qty = _int(qty, "Opening quantity", 0, 1_000_000)
+        when = _date(when)
+        expiry_date = _expiry_date(expiry_date)
+        with self._tx() as c:
+            pid = c.insert(
+                "INSERT INTO products(name, sku, cat, unit, min_qty, qty, expiry_date) VALUES(?,?,?,?,?,?,?)",
+                (name, sku, cat, unit, min_qty, qty, expiry_date),
+            )
+            if qty > 0:
+                c.execute(
+                    "INSERT INTO movements(product_id, name, type, qty, balance_after, date, supplier, note, created_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?)",
+                    (pid, name, "purchase", qty, qty, when, "", "Opening stock", now_iso()),
+                )
+            row = self._get_product(c, pid)
+        return self._product(row, when if qty > 0 else None)
+
+    def update_product(self, pid, name, sku="", cat="", unit="pcs", min_qty=10, expiry_date=None):
+        name = _text(name, "Product name", 80, required=True)
+        sku = _text(sku, "SKU", 40)
+        cat = _text(cat, "Category", 40)
+        unit = _text(unit, "Unit", 12) or "pcs"
+        min_qty = _int(min_qty, "Low-stock level", 0, 1_000_000)
+        expiry_date = _expiry_date(expiry_date)
+        with self._tx() as c:
+            self._get_product(c, pid, lock=True)
+            c.execute(
+                "UPDATE products SET name=?, sku=?, cat=?, unit=?, min_qty=?, expiry_date=? WHERE id=?",
+                (name, sku, cat, unit, min_qty, expiry_date, pid),
+            )
+            c.execute("UPDATE movements SET name=? WHERE product_id=?", (name, pid))
+            row = self._get_product(c, pid)
+        return self._product(row)
+
+    def delete_product(self, pid):
+        with self._tx() as c:
+            self._get_product(c, pid, lock=True)
+            c.execute("DELETE FROM movements WHERE product_id=?", (pid,))
+            c.execute("DELETE FROM products WHERE id=?", (pid,))
+
+    # ---------------- stock movements ----------------
+    def move(self, pid, mtype, qty, when=None, supplier="", note=""):
+        if mtype not in ("purchase", "issue"):
+            raise StoreError("Invalid movement type")
+        qty = _int(qty, "Quantity", 1, 1_000_000)
+        when = _date(when)
+        supplier = _text(supplier, "Supplier", 80)
+        note = _text(note, "Note", 120)
+        with self._tx() as c:
+            p = self._get_product(c, pid, lock=True)
+            before = status(p["qty"], p["min_qty"])
+            new_qty = p["qty"] + qty if mtype == "purchase" else p["qty"] - qty
+            if new_qty < 0:
+                raise StoreError(f"Only {p['qty']} {p['unit']} in stock")
+            c.execute("UPDATE products SET qty=? WHERE id=?", (new_qty, pid))
+            c.execute(
+                "INSERT INTO movements(product_id, name, type, qty, balance_after, date, supplier, note, created_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
+                (pid, p["name"], mtype, qty, new_qty, when, supplier, note, now_iso()),
+            )
+            low_enabled = self._setting(c, "low") == "1"
+            row = self._get_product(c, pid)
+        after = status(new_qty, p["min_qty"])
+        message = None
+        if mtype == "issue" and after != before and (after == "out" or (after == "low" and low_enabled)):
+            message = build_message(p["name"], new_qty, p["unit"], after)
+        return {"product": self._product(row), "alert_message": message}
+
+    def list_log(self, limit=500):
+        with self._tx() as c:
+            rows = c.execute("SELECT * FROM movements ORDER BY date DESC, id DESC LIMIT ?", (limit,)).fetchall()
+        return [
+            {"id": r["id"], "product_id": r["product_id"], "name": r["name"], "type": r["type"],
+             "qty": r["qty"], "after": r["balance_after"], "date": r["date"],
+             "supplier": r["supplier"], "note": r["note"]}
+            for r in rows
+        ]
+
+    def export_all(self):
+        settings = self.get_settings()
+        return {
+            "exported_at": now_iso(),
+            "products": self.list_products(),
+            "log": self.list_log(limit=1_000_000),
+            "settings": {"phone": settings["phone"], "low": settings["low"], "expiry_days": settings["expiry_days"]},
+        }
+
+    # ---------------- settings ----------------
+    @staticmethod
+    def _setting(c, key, default=""):
+        row = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        return row["value"] if row else default
+
+    @staticmethod
+    def _put_setting(c, key, value):
+        c.execute(
+            "INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+
+    def get_settings(self):
+        with self._tx() as c:
+            try:
+                expiry_days = int(self._setting(c, "expiry_days", "7"))
+            except ValueError:
+                expiry_days = 7
+            return {
+                "phone": self._setting(c, "phone"),
+                "low": self._setting(c, "low") == "1",
+                "expiry_days": expiry_days,
+                "apikey_set": bool(self._setting(c, "apikey")),
+            }
+
+    def update_settings(self, phone, apikey=None, low=False, expiry_days=7):
+        phone = (phone or "").strip()
+        if phone and "@" in phone:
+            if not EMAIL_RE.match(phone):
+                raise StoreError("Enter a valid email address")
+        else:
+            phone = re.sub(r"[\s\-()]", "", phone)
+            if phone and not PHONE_RE.match(phone):
+                raise StoreError("Enter the mobile number with country code, like +919876543210")
+        if apikey is not None:
+            apikey = apikey.strip()
+            if apikey and not APIKEY_RE.match(apikey):
+                raise StoreError("That Gmail app password does not look right")
+        expiry_days = _int(expiry_days, "Expiry alert days", 0, 365)
+        with self._tx() as c:
+            self._put_setting(c, "phone", phone)
+            self._put_setting(c, "low", "1" if low else "0")
+            self._put_setting(c, "expiry_days", str(expiry_days))
+            if apikey:
+                self._put_setting(c, "apikey", apikey)
+        return self.get_settings()
+
+    # ---------------- alerts ----------------
+    def alerts_configured(self):
+        with self._tx() as c:
+            phone = self._setting(c, "phone")
+            apikey = self._setting(c, "apikey")
+        smtp_ready = bool(os.environ.get("SMTP_HOST") and os.environ.get("SMTP_USER") and (os.environ.get("SMTP_PASS") or os.environ.get("SMTP_PASSWORD")))
+        if smtp_ready:
+            return True
+        return bool(phone and apikey)
+
+    def check_expiry_alerts(self, default_days=7):
+        with self._tx() as c:
+            rows = c.execute("SELECT * FROM products WHERE expiry_date IS NOT NULL ORDER BY id").fetchall()
+            try:
+                expiry_days = int(self._setting(c, "expiry_days", str(default_days)))
+            except ValueError:
+                expiry_days = default_days
+        messages = []
+        for row in rows:
+            days_left = days_until_expiry(row["expiry_date"])
+            if days_left is not None and days_left <= expiry_days:
+                messages.append(build_expiry_message(row["name"], row["expiry_date"], days_left))
+        return messages
+
+    def dispatch_expiry_alerts(self, default_days=7):
+        messages = self.check_expiry_alerts(default_days=default_days)
+        configured = self.alerts_configured()
+        sent = []
+        for message in messages:
+            if configured:
+                ok = self.dispatch_alert(message)
+            else:
+                self._log_alert(message, False, "Email alerts are not configured")
+                ok = False
+            sent.append({"message": message, "ok": ok})
+        return {"count": len(messages), "messages": messages, "sent": sent}
+
+    def _log_alert(self, message, ok, detail):
+        with self._tx() as c:
+            c.execute("INSERT INTO alerts(created_at, message, ok, detail) VALUES(?,?,?,?)",
+                      (now_iso(), message, 1 if ok else 0, detail[:300]))
+            c.execute("DELETE FROM alerts WHERE id NOT IN (SELECT id FROM alerts ORDER BY id DESC LIMIT 200)")
+
+    def dispatch_alert(self, message):
+        with self._tx() as c:
+            phone = self._setting(c, "phone")
+            apikey = self._setting(c, "apikey")
+        smtp_ready = bool(os.environ.get("SMTP_HOST") and os.environ.get("SMTP_USER") and (os.environ.get("SMTP_PASS") or os.environ.get("SMTP_PASSWORD")))
+        if smtp_ready:
+            target = (phone if "@" in str(phone) else os.environ.get("ALERT_EMAIL_TO") or os.environ.get("EMAIL_TO"))
+            key = apikey or os.environ.get("SMTP_PASS") or os.environ.get("SMTP_PASSWORD") or ""
+            if not target or not key:
+                self._log_alert(message, False, "Email alert is not configured")
+                return False
+            try:
+                ok, detail = self.sender(target, key, message)
+            except Exception as e:
+                ok, detail = False, f"Error: {type(e).__name__}"
+            detail = str(detail).replace(key, "***").replace(target, "***")
+            self._log_alert(message, ok, detail)
+            return ok
+        if not phone or not apikey:
+            self._log_alert(message, False, "Email alert is not configured")
+            return False
+        try:
+            ok, detail = self.sender(phone, apikey, message)
+        except Exception as e:
+            ok, detail = False, f"Error: {type(e).__name__}"
+        detail = str(detail).replace(apikey, "***").replace(phone, "***")
+        self._log_alert(message, ok, detail)
+        return ok
+
+    def send_test(self):
+        message = "✅ Test alert from your Warehouse Stock Manager. Alerts are working."
+        ok = self.dispatch_alert(message)
+        last = self.list_alerts(1)
+        return {"ok": ok, "detail": last[0]["detail"] if last else ""}
+
+    def list_alerts(self, limit=50):
+        with self._tx() as c:
+            rows = c.execute("SELECT * FROM alerts ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [{"id": r["id"], "time": r["created_at"], "message": r["message"],
+                 "ok": bool(r["ok"]), "detail": r["detail"]} for r in rows]
+
+
+# Backwards compatibility for older code that imports the original helper name
+send_whatsapp = send_whatsapp

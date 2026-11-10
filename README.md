@@ -10,7 +10,7 @@ Stack: Python (FastAPI). Data is kept in SQLite (a local file) or in Postgres (f
 
 Needs Python 3.10 or newer.
 
-**Easiest (Windows):** open `start.bat` in Notepad, replace `CHANGE-THIS-PASSWORD` with your own password (8+ characters, avoid `%`), save, and double-click it. First run installs everything. (Mac/Linux: edit `start.sh`, then `./start.sh`.)
+**Easiest (Windows):** open `start.bat` in Notepad, replace `CHANGE-THIS-PASSWORD` with your own password (8+ characters, avoid `%`), save, and double-click it. First run installs everything. (Mac/Linux: use the same flow as the manual steps below.)
 
 **Manually:**
 
@@ -33,7 +33,7 @@ Open http://localhost:8000 and log in. Phones on the same Wi-Fi can use `http://
 
 ## B. Put it online for free (Render + Neon)
 
-Render runs the app, Neon keeps the data. You need three free accounts: GitHub, Neon and Render. Menu names on these sites may change slightly, but the steps stay the same. If they offer a region choice, pick the same region for both (Singapore is closest to India).
+Render runs the app, Neon keeps the data. You need three free accounts: GitHub, Neon and Render. Menu names on these sites may change slightly, but the steps stay the same. If they offer a region option, pick one close to your users.
 
 ### 1. Create the database (Neon)
 1. Sign up at **neon.com** and create a project.
@@ -41,7 +41,7 @@ Render runs the app, Neon keeps the data. You need three free accounts: GitHub, 
 
 ### 2. Put the code on GitHub
 1. Create a new repository (private is fine).
-2. Upload the contents of the `warehouse-app` folder (the files `main.py`, `store.py`, `auth.py`, `requirements.txt`, the `static` folder, etc.). Do **not** upload a `venv` folder, any `.db` file, or `start.bat` / `start.sh` (those can contain your password and are only for running on one computer). The `.gitignore` already skips them if you use Git.
+2. Upload the contents of the `warehouse-app` folder (the files `main.py`, `store.py`, `auth.py`, `requirements.txt`, the `static` folder, etc.). Do **not** upload a `venv` folder, any `.db` file, or a hidden `.env` file.
 
 ### 3. Create the web service (Render)
 1. At **render.com**, choose **New → Web Service** and connect your GitHub repository.
@@ -56,35 +56,61 @@ Render runs the app, Neon keeps the data. You need three free accounts: GitHub, 
    | `APP_PASSWORD` | the login password you choose (8+ characters) |
    | `DATABASE_URL` | the Neon connection string from step 1 |
    | `SESSION_SECRET` | any long random text (32+ characters), e.g. from `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
-4. Click **Create Web Service**. When the build finishes, open the `https://<your-name>.onrender.com` link, log in, and set up the WhatsApp alerts (section C).
+4. Click **Create Web Service**. When the build finishes, open the `https://<your-name>.onrender.com` link, log in, and set up the alerts (section C).
 
 If the build complains about the Python version, add an environment variable `PYTHON_VERSION` set to a full version such as `3.12.8`.
 
 ### What to expect on the free plan
-- **Sleeping:** Render puts the free app to sleep after 15 minutes without visits. The first visit afterwards takes about a minute to wake it up. Neon's database also sleeps after 5 minutes idle but keeps all data.
+- **Sleeping:** Render puts the free app to sleep after 15 minutes without visits. The first visit afterwards takes about a minute to wake it up. Neon's database also sleeps after 5 minutes idle but wakes automatically.
 - **Data is safe across sleeps and restarts** because it lives in Neon, not on Render's disk (which is wiped on every restart).
-- **Limits:** Neon's free plan is 1 GB of data and a monthly compute allowance; Render's free plan has 750 hours a month. A single small warehouse should be far below these. Free plans can change, so check each provider's pricing page.
-- **Backups:** Neon's free restore history is only about 6 hours. Use the **Backup** button in the app regularly and keep the downloaded file somewhere safe. It contains all products and stock history.
+- **Limits:** Neon's free plan is 1 GB of data and a monthly compute allowance; Render's free plan has 750 hours a month. A single small warehouse should be far below these. Free plans can change, so monitor the pricing pages before depending on them.
+- **Backups:** Neon's free restore history is only about 6 hours. Use the **Backup** button in the app regularly and keep the downloaded file somewhere safe. It contains all products and stock history, but it does not contain the API key or secret settings.
 - **Alerts still work** because a stock-out is recorded through a visit, which wakes the app.
 
 ---
 
-## C. Set up free WhatsApp alerts (one time, about 5 minutes)
+## C. Set up free Gmail alerts
 
-The alert goes through CallMeBot's free WhatsApp API. The number that receives alerts is the number that activates it, so do these steps **from the phone that should get the alerts**:
+Use a normal personal Gmail account with a Google App Password. That is the easiest free alert option and it works well on Android because the message arrives as an email notification.
 
-1. Open **callmebot.com** and find the WhatsApp section. Save the bot's phone number in your contacts (the number changes sometimes, so copy the current one from the site).
-2. From WhatsApp, send the bot the message **I allow callmebot to send me messages**.
-3. The bot replies with an **API key**. (If nothing arrives within 2 minutes, CallMeBot says to try again after 24 hours.)
-4. In the app, click **🔔 WhatsApp alerts**, enter the same number and the API key, then press **Save & send test**.
+### 1. Create a Google App Password
+1. Open your Google Account: https://myaccount.google.com/
+2. Go to **Security**.
+3. Turn on **2-Step Verification** if it is not already enabled.
+4. Under **Signing in to Google**, choose **App passwords**.
+5. Select **Mail** and the device name you want.
+6. Copy the generated 16-character password.
 
-From then on, every time a **− Stock out** takes a product to zero, the message arrives on WhatsApp. The **Alert Log** tab shows each alert and whether it was sent or failed. Tick "Also alert me when stock is low" for an early warning.
+### 2. Add the email settings
+Set these environment variables before starting the app:
+
+```bash
+export SMTP_HOST="smtp.gmail.com"
+export SMTP_PORT="587"
+export SMTP_USER="you@gmail.com"
+export SMTP_PASS="your-16-char-app-password"
+export ALERT_EMAIL_TO="you@gmail.com"
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:SMTP_HOST="smtp.gmail.com"
+$env:SMTP_PORT="587"
+$env:SMTP_USER="you@gmail.com"
+$env:SMTP_PASS="your-16-char-app-password"
+$env:ALERT_EMAIL_TO="you@gmail.com"
+```
+
+Then restart the app. The app will send stock-out and expiry alerts by email automatically.
+
+---
 
 ## D. Things to know
 
 - **Alerts depend on stock being recorded.** The app can only alert when someone records the stock-out in it.
-- **CallMeBot is free for personal use only.** It can send only to the number that activated it (no groups) and it is an unofficial service that can change or stop. For a business that depends on alerts, the paid, official options are the WhatsApp Business API through Twilio, or an SMS service such as MSG91 or Fast2SMS (India SMS needs DLT registration). Only `send_whatsapp()` in `store.py` would need to change.
-- **Security:** use a long password. Logins last 12 hours. Anyone who knows the password can change the stock. The WhatsApp API key is stored in the database and is never sent back to the browser.
+- **Email alerts are free and practical** for personal use, and they work well on Android as notifications.
+- **Security:** use a long password. Logins last 12 hours. Anyone who knows the password can change the stock. The Gmail app password is stored in the app settings and is never sent back to the browser as a plain text value.
 - **Changing the password** on Render: edit `APP_PASSWORD` in the service's Environment tab; it redeploys. To log everyone out, also change `SESSION_SECRET`.
 
 ## E. Tests
@@ -99,3 +125,4 @@ To run the database tests against Postgres too (this **drops and recreates** the
 # Mac / Linux
 TEST_DATABASE_URL="postgresql://user:password@host/testdb" python -m unittest test_store -v
 ```
+
