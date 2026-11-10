@@ -31,18 +31,16 @@ if DATABASE_URL and len(SESSION_SECRET) < 32:
         "Set SESSION_SECRET to a long random text (at least 32 characters) so logins survive restarts."
     )
 if not SESSION_SECRET:
-    SESSION_SECRET = secrets.token_hex(32)  # local use: logins reset when the server restarts
+    SESSION_SECRET = secrets.token_hex(32)
 
 store = Store(DATABASE_URL or os.environ.get("DB_PATH", str(BASE / "warehouse.db")))
 
-# Docs pages are switched off: this is a private tool, not a public API.
 app = FastAPI(title="Warehouse Stock Manager", docs_url=None, redoc_url=None, openapi_url=None)
 
 SESSION_TTL = 12 * 3600
 throttle = LoginThrottle(max_fails=8, window=600)
 
 
-# ---------------------------------------------------------------- plumbing
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -65,7 +63,6 @@ def require_auth(authorization: str = Header(default="")):
         raise HTTPException(status_code=401, detail="Please log in")
 
 
-# ---------------------------------------------------------------- request models
 class LoginIn(BaseModel):
     password: str = Field(max_length=200)
 
@@ -78,6 +75,7 @@ class ProductIn(BaseModel):
     min: int = Field(default=10, ge=0, le=1_000_000)
     qty: int = Field(default=0, ge=0, le=1_000_000)
     date: Optional[str] = Field(default=None, max_length=10)
+    expiry_date: Optional[str] = Field(default=None, max_length=10)
 
 
 class MoveIn(BaseModel):
@@ -92,9 +90,9 @@ class SettingsIn(BaseModel):
     phone: str = Field(default="", max_length=25)
     apikey: Optional[str] = Field(default=None, max_length=40)
     low: bool = False
+    expiry_days: int = Field(default=7, ge=0, le=365)
 
 
-# ---------------------------------------------------------------- routes
 @app.get("/", include_in_schema=False)
 def index():
     return FileResponse(BASE / "static" / "index.html")
@@ -126,12 +124,14 @@ def list_products():
 
 @api.post("/products")
 def create_product(body: ProductIn):
-    return store.create_product(body.name, body.sku, body.cat, body.unit, body.min, body.qty, body.date)
+    return store.create_product(
+        body.name, body.sku, body.cat, body.unit, body.min, body.qty, body.date, body.expiry_date
+    )
 
 
 @api.put("/products/{pid}")
 def update_product(pid: int, body: ProductIn):
-    return store.update_product(pid, body.name, body.sku, body.cat, body.unit, body.min)
+    return store.update_product(pid, body.name, body.sku, body.cat, body.unit, body.min, body.expiry_date)
 
 
 @api.delete("/products/{pid}")
@@ -146,7 +146,6 @@ def move_stock(pid: int, body: MoveIn, background: BackgroundTasks):
     alert = None
     if result["alert_message"]:
         alert = "queued" if store.alerts_configured() else "not_configured"
-        # sent after the response, so a slow WhatsApp call never delays the stock update
         background.add_task(store.dispatch_alert, result["alert_message"])
     return {"product": result["product"], "alert": alert}
 
@@ -168,12 +167,17 @@ def get_settings():
 
 @api.put("/settings")
 def put_settings(body: SettingsIn):
-    return store.update_settings(body.phone, body.apikey, body.low)
+    return store.update_settings(body.phone, body.apikey, body.low, body.expiry_days)
 
 
 @api.get("/alerts")
 def alert_log():
     return store.list_alerts()
+
+
+@api.post("/alerts/expiry-check")
+def expiry_check():
+    return store.dispatch_expiry_alerts()
 
 
 @api.post("/alerts/test")

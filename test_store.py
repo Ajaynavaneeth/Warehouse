@@ -141,7 +141,7 @@ class ExportTests(Base):
         data = self.s.export_all()
         self.assertEqual([x["name"] for x in data["products"]], ["Rice"])
         self.assertEqual(len(data["log"]), 2)
-        self.assertEqual(data["settings"], {"phone": "+919876543210", "low": True})
+        self.assertEqual(data["settings"], {"phone": "+919876543210", "low": True, "expiry_days": 7})
         self.assertNotIn("123456", str(data))  # the CallMeBot API key must never be in a backup
         self.assertIn("exported_at", data)
 

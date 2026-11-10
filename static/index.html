@@ -12,7 +12,7 @@
   }
   *{box-sizing:border-box}
   body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:15px}
-  header{background:var(--card);border-bottom:1px solid var(--line);padding:14px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:5}
+  header{background:var(--card);border-bottom:1px solid var(--line);padding:14px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
   h1{font-size:19px;margin:0}
   main{max-width:1100px;margin:0 auto;padding:20px}
   .btn{border:1px solid var(--line);background:var(--card);color:var(--text);padding:8px 14px;border-radius:8px;font-size:14px;cursor:pointer}
@@ -44,6 +44,7 @@
   .qty{font-weight:700;font-size:16px}
   .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
   .b-ok{background:var(--ok-bg);color:var(--ok)} .b-low{background:var(--low-bg);color:var(--low)} .b-out{background:var(--out-bg);color:var(--out)}
+  .b-exp{background:#fce7f3;color:#9d174d}
   .in{color:var(--ok);font-weight:600} .outc{color:var(--out);font-weight:600}
   .muted{color:var(--muted);font-size:13px}
   .actions{display:flex;gap:6px;flex-wrap:wrap}
@@ -55,7 +56,7 @@
   label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .dlg-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px;flex-wrap:wrap}
-  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1d2330;color:#fff;padding:10px 18px;border-radius:8px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:92vw;text-align:center;z-index:50}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1d2330;color:#fff;padding:10px 18px;border-radius:8px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s ease}
   .toast.show{opacity:1}
   .hint{background:#eef3ff;border:1px solid #cfdcff;border-radius:8px;padding:10px 12px;font-size:13px;color:#2a3f78;line-height:1.5}
   .chk{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text)}
@@ -70,6 +71,7 @@
   <h1>📦 Warehouse Stock Manager</h1>
   <div class="actions">
     <button class="btn" id="btnAlerts">🔔 WhatsApp alerts</button>
+    <button class="btn" id="btnExpiryCheck">⏰ Check expiry alerts</button>
     <button class="btn" id="btnExport">Export CSV</button>
     <button class="btn" id="btnBackup">Backup</button>
     <button class="btn" id="btnLogout">Log out</button>
@@ -98,7 +100,7 @@
       </select>
     </div>
     <div class="panel"><table>
-      <thead><tr><th>Product</th><th>Category</th><th>In stock</th><th>Status</th><th>Last purchased</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Product</th><th>Category</th><th>In stock</th><th>Expiry</th><th>Status</th><th>Last purchased</th><th>Actions</th></tr></thead>
       <tbody id="stockBody"></tbody>
     </table><div class="empty" id="stockEmpty" hidden></div></div>
   </section>
@@ -126,14 +128,12 @@
   </section>
 </main>
 
-<!-- Login -->
 <dialog id="dlgLogin"><form class="dlg" id="formLogin">
   <h2>🔒 Log in</h2>
   <label>Password<input id="lPass" type="password" autocomplete="current-password" required></label>
   <div class="dlg-actions"><button class="btn primary">Log in</button></div>
 </form></dialog>
 
-<!-- Add / Edit product -->
 <dialog id="dlgProduct"><form class="dlg" id="formProduct">
   <h2 id="productTitle">Add Product</h2>
   <label>Product name *<input id="pName" required maxlength="80"></label>
@@ -145,17 +145,17 @@
     <label>Unit<input id="pUnit" value="pcs" maxlength="12"></label>
     <label>Low-stock level<input id="pMin" type="number" min="0" value="10"></label>
   </div>
-  <div id="initialBlock" class="row2">
+  <div class="row2">
     <label>Opening quantity<input id="pQty" type="number" min="0" value="0"></label>
     <label>Purchase date<input id="pDate" type="date"></label>
   </div>
+  <label>Expiry date<input id="pExpiry" type="date"></label>
   <div class="dlg-actions">
     <button type="button" class="btn" data-close>Cancel</button>
     <button class="btn primary">Save</button>
   </div>
 </form></dialog>
 
-<!-- Restock / Stock out -->
 <dialog id="dlgMove"><form class="dlg" id="formMove">
   <h2 id="moveTitle"></h2>
   <div class="hint" id="moveHint"></div>
@@ -171,19 +171,19 @@
   </div>
 </form></dialog>
 
-<!-- WhatsApp alert settings -->
 <dialog id="dlgSettings"><form class="dlg" id="formSettings">
   <h2>🔔 WhatsApp alerts</h2>
   <div class="hint">
-    A WhatsApp message is sent automatically when a product runs out. One-time setup (free):
+    A WhatsApp message is sent automatically when stock runs out or a product is near expiry. One-time setup (free):
     <ol style="margin:6px 0 0;padding-left:18px">
-      <li>Open <strong>callmebot.com</strong> and follow its WhatsApp setup (save the bot's number, send it the activation message).</li>
-      <li>The bot replies with an <strong>API key</strong>. Enter it below with the same mobile number.</li>
+      <li>Open <strong>callmebot.com</strong> and follow its WhatsApp setup.</li>
+      <li>Enter your WhatsApp number and CallMeBot API key below.</li>
     </ol>
   </div>
   <label>WhatsApp number (with country code) *<input id="sPhone" type="tel" placeholder="e.g. 9876543210 or +919876543210" maxlength="25"></label>
   <label>CallMeBot API key<input id="sKey" type="password" autocomplete="off" maxlength="40"></label>
   <label class="chk"><input type="checkbox" id="sLow"> Also alert me when stock is low</label>
+  <label>Expiry alert window (days before expiry)<input id="sExpiryDays" type="number" min="0" max="365" value="7"></label>
   <div class="dlg-actions">
     <button type="button" class="btn" data-close>Close</button>
     <button type="button" class="btn" id="btnTest">Save &amp; send test</button>
@@ -197,11 +197,11 @@
 (function(){
   const TOKEN_KEY = "wsm_token";
   let token = ""; try{ token = localStorage.getItem(TOKEN_KEY) || ""; }catch(e){}
-  let state = {products:[], log:[], alerts:[], settings:{phone:"", low:false, apikey_set:false}};
+  let state = {products:[], log:[], alerts:[], settings:{phone:"", low:false, expiry_days:7, apikey_set:false}};
   let moveCtx = null, editId = null;
 
   const $ = s => document.querySelector(s);
-  const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const esc = s => String(s==null?"":s).replace(/[&<>\"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
   const today = () => { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
   const fmtDate = s => { if(!s) return "—"; const [y,m,d]=s.split("-"); return new Date(y,m-1,d).toLocaleDateString(undefined,{day:"2-digit",month:"short",year:"numeric"}); };
   const fmtTime = s => { const d=new Date(s); return isNaN(d) ? s : d.toLocaleString(undefined,{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); };
@@ -210,7 +210,6 @@
   const cls = {in:"b-ok",low:"b-low",out:"b-out"};
   const alertsOn = () => !!(state.settings.phone && state.settings.apikey_set);
 
-  /* ---------- API ---------- */
   async function api(path, method, body){
     const headers = {"Content-Type":"application/json"};
     if(token) headers.Authorization = "Bearer " + token;
@@ -235,7 +234,6 @@
     render();
   }
 
-  /* ---------- login ---------- */
   function showLogin(){
     token = ""; try{ localStorage.removeItem(TOKEN_KEY); }catch(e){}
     $("#lPass").value = "";
@@ -246,41 +244,49 @@
     e.preventDefault();
     run(async()=>{
       const r = await api("/login","POST",{password:$("#lPass").value});
-      token = r.token; try{ localStorage.setItem(TOKEN_KEY, token); }catch(_){}
+      token = r.token; try{ localStorage.setItem(TOKEN_KEY, token); }catch(_){ }
       $("#dlgLogin").close();
       await loadAll();
     });
   });
-  $("#btnLogout").onclick = ()=>{ state = {products:[],log:[],alerts:[],settings:{phone:"",low:false,apikey_set:false}}; render(); showLogin(); };
+  $("#btnLogout").onclick = ()=>{ state = {products:[],log:[],alerts:[],settings:{phone:"",low:false,expiry_days:7,apikey_set:false}}; render(); showLogin(); };
 
-  /* ---------- render ---------- */
   function render(){
     const P = state.products;
+    const expiring = P.filter(p => p.days_to_expiry !== null && p.days_to_expiry <= state.settings.expiry_days).length;
     $("#cards").innerHTML =
       `<div class="stat"><span>Products</span><b>${P.length}</b></div>
        <div class="stat"><span>Total units in stock</span><b>${P.reduce((s,p)=>s+p.qty,0)}</b></div>
        <div class="stat warn"><span>Low stock</span><b>${P.filter(p=>p.status==="low").length}</b></div>
-       <div class="stat bad"><span>Out of stock</span><b>${P.filter(p=>p.status==="out").length}</b></div>`;
+       <div class="stat bad"><span>Out of stock</span><b>${P.filter(p=>p.status==="out").length}</b></div>
+       <div class="stat"><span>Expiring soon</span><b>${expiring}</b></div>`;
 
-    // banner
-    const need = P.filter(p => p.status==="out" || (state.settings.low && p.status==="low"));
+    const need = P.filter(p => p.status==="out" || (state.settings.low && p.status==="low") || (p.days_to_expiry !== null && p.days_to_expiry <= state.settings.expiry_days));
     const bar = $("#alertBar");
     bar.hidden = need.length===0;
     if(need.length){
-      bar.innerHTML = `<div><div>⚠ ${need.length} product${need.length>1?"s":""} need${need.length>1?"":"s"} attention: <strong>${esc(need.map(p=>p.name).join(", "))}</strong></div>
+      const names = [...new Set(need.map(p => p.name))];
+      bar.innerHTML = `<div><div>⚠ ${names.length} product${names.length>1?"s":""} need${names.length>1?"":"s"} attention: <strong>${esc(names.join(", "))}</strong></div>
         <div class="sub">${alertsOn() ? "WhatsApp alerts are switched on." : "WhatsApp alerts are not set up yet."}</div></div>
         ${alertsOn() ? "" : '<button class="btn sm primary" id="btnSetup">Set up alerts</button>'}`;
     }
 
-    // stock table
     const q = $("#search").value.trim().toLowerCase(), f = $("#filter").value;
     const order = {out:0,low:1,in:2};
     const rows = P.filter(p => (!q || [p.name,p.sku,p.cat].join(" ").toLowerCase().includes(q)) && (f==="all" || p.status===f))
       .sort((a,b)=> order[a.status]-order[b.status] || a.name.localeCompare(b.name));
-    $("#stockBody").innerHTML = rows.map(p=>`<tr>
+    $("#stockBody").innerHTML = rows.map(p=>{
+      const expiry = p.expiry_date ? fmtDate(p.expiry_date) : "—";
+      let expiryText = "—";
+      if(p.days_to_expiry !== null){
+        expiryText = p.days_to_expiry < 0 ? `${Math.abs(p.days_to_expiry)}d overdue` : `${p.days_to_expiry}d left`;
+      }
+      const expClass = p.days_to_expiry !== null && p.days_to_expiry <= state.settings.expiry_days ? "b-exp" : "";
+      return `<tr>
         <td><strong>${esc(p.name)}</strong><div class="muted">${esc(p.sku)}</div></td>
         <td>${esc(p.cat||"—")}</td>
         <td><span class="qty">${p.qty}</span> <span class="muted">${esc(p.unit)}</span></td>
+        <td><span class="badge ${expClass}">${expClass ? esc(expiryText) : esc(expiry)}</span></td>
         <td><span class="badge ${cls[p.status]}">${label[p.status]}</span></td>
         <td>${fmtDate(p.last_purchase)}</td>
         <td><div class="actions">
@@ -288,12 +294,12 @@
           <button class="btn sm" data-act="issue" data-id="${p.id}" ${p.qty<=0?"disabled":""}>− Stock out</button>
           <button class="btn sm" data-act="edit" data-id="${p.id}">Edit</button>
           <button class="btn sm danger" data-act="del" data-id="${p.id}">Delete</button>
-        </div></td></tr>`).join("");
+        </div></td></tr>`;
+    }).join("");
     const empty = $("#stockEmpty");
     empty.hidden = rows.length>0;
     if(!rows.length) empty.textContent = P.length ? "No products match your search." : "No products yet. Click “+ Add Product” to start.";
 
-    // history filter
     const hSel = $("#hFilter"), cur = hSel.value;
     hSel.innerHTML = '<option value="all">All products</option>' + P.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("");
     hSel.value = P.some(p=>String(p.id)===cur) ? cur : "all";
@@ -320,22 +326,21 @@
     $("#alertEmpty").hidden = state.alerts.length>0;
   }
 
-  /* ---------- product dialog ---------- */
   function openProduct(id){
     editId = id || null;
     const p = id ? find(id) : null;
     $("#productTitle").textContent = p ? "Edit Product" : "Add Product";
     $("#pName").value = p ? p.name : ""; $("#pSku").value = p ? p.sku : ""; $("#pCat").value = p ? p.cat : "";
     $("#pUnit").value = p ? p.unit : "pcs"; $("#pMin").value = p ? p.min : 10;
-    $("#pQty").value = 0; $("#pDate").value = today();
-    $("#initialBlock").hidden = !!p;
+    $("#pQty").value = 0; $("#pDate").value = today(); $("#pExpiry").value = p && p.expiry_date ? p.expiry_date : "";
     $("#dlgProduct").showModal();
   }
   $("#formProduct").addEventListener("submit", e=>{
     e.preventDefault();
     const body = {name:$("#pName").value.trim(), sku:$("#pSku").value.trim(), cat:$("#pCat").value.trim(),
       unit:$("#pUnit").value.trim()||"pcs", min:parseInt($("#pMin").value)||0,
-      qty:parseInt($("#pQty").value)||0, date:$("#pDate").value||null};
+      qty:parseInt($("#pQty").value)||0, date:$("#pDate").value||null,
+      expiry_date:$("#pExpiry").value||null};
     run(async()=>{
       if(editId) await api("/products/"+editId,"PUT",body); else await api("/products","POST",body);
       $("#dlgProduct").close(); toast(editId?"Product updated":"Product added");
@@ -343,7 +348,6 @@
     });
   });
 
-  /* ---------- restock / stock out ---------- */
   function openMove(id,type){
     const p = find(id); moveCtx = {id,type};
     const buy = type==="purchase";
@@ -373,7 +377,6 @@
     });
   });
 
-  /* ---------- alert settings ---------- */
   function normPhone(v){
     v = String(v||"").replace(/[\s\-()]/g,"");
     if(!v) return "";
@@ -385,6 +388,7 @@
     $("#sPhone").value = state.settings.phone || "";
     $("#sKey").value = ""; $("#sKey").placeholder = state.settings.apikey_set ? "Saved — leave blank to keep" : "Key from CallMeBot";
     $("#sLow").checked = !!state.settings.low;
+    $("#sExpiryDays").value = state.settings.expiry_days ?? 7;
     $("#dlgSettings").showModal();
   }
   async function saveSettings(){
@@ -392,7 +396,8 @@
     if(!phone){ throw new Error("Enter the WhatsApp number"); }
     const key = $("#sKey").value.trim();
     if(!key && !state.settings.apikey_set){ throw new Error("Enter the API key from CallMeBot"); }
-    state.settings = await api("/settings","PUT",{phone, apikey:key||null, low:$("#sLow").checked});
+    const expiryDays = parseInt($("#sExpiryDays").value, 10) || 0;
+    state.settings = await api("/settings","PUT",{phone, apikey:key||null, low:$("#sLow").checked, expiry_days: expiryDays});
     $("#sPhone").value = state.settings.phone; $("#sKey").value = ""; $("#sKey").placeholder = "Saved — leave blank to keep";
     render();
   }
@@ -411,8 +416,14 @@
   });
   $("#btnAlerts").onclick = openSettings;
   $("#alertBar").addEventListener("click", e=>{ if(e.target.closest("#btnSetup")) openSettings(); });
+  $("#btnExpiryCheck").onclick = ()=>run(async()=>{
+    const r = await api("/alerts/expiry-check","POST");
+    state.alerts = await api("/alerts");
+    render();
+    if(r.count){ toast(`${r.count} expiry alert${r.count>1?"s":""} checked`); }
+    else toast("No products are expiring soon");
+  });
 
-  /* ---------- events ---------- */
   $("#btnAdd").onclick = ()=>openProduct();
   document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>b.closest("dialog").close());
   $("#stockBody").addEventListener("click", e=>{
@@ -435,11 +446,10 @@
     if(t.dataset.tab==="alerts") run(async()=>{ state.alerts = await api("/alerts"); renderAlerts(); });
   });
 
-  /* ---------- CSV ---------- */
   const csvCell = v => { v=String(v==null?"":v); if(/^[=+\-@]/.test(v)) v="'"+v; return '"'+v.replace(/"/g,'""')+'"'; };
   $("#btnExport").onclick = ()=>{
-    const rows = [["Product","SKU","Category","Quantity","Unit","Status","Last purchased"]];
-    state.products.forEach(p=>rows.push([p.name,p.sku,p.cat,p.qty,p.unit,label[p.status],p.last_purchase||""]));
+    const rows = [["Product","SKU","Category","Quantity","Unit","Expiry","Status","Last purchased"]];
+    state.products.forEach(p=>rows.push([p.name,p.sku,p.cat,p.qty,p.unit,p.expiry_date||"",label[p.status],p.last_purchase||""]));
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([rows.map(r=>r.map(csvCell).join(",")).join("\n")],{type:"text/csv"}));
     a.download = "stock-"+today()+".csv"; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
@@ -456,7 +466,6 @@
   let tt;
   function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(tt); tt=setTimeout(()=>t.classList.remove("show"),3200); }
 
-  /* ---------- start ---------- */
   render();
   if(token) run(loadAll); else showLogin();
 })();
