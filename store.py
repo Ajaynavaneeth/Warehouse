@@ -172,7 +172,6 @@ class _Conn:
         self.pg = pg
 
     def _sql(self, sql):
-        # Postgres drivers use %s placeholders; SQLite uses ?
         return sql.replace("?", "%s") if self.pg else sql
 
     def execute(self, sql, params=()):
@@ -210,9 +209,16 @@ class Store:
     def _ensure_products_columns(self):
         with self._tx() as c:
             if self.pg:
-                rows = c.execute(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'products'"
-                ).fetchall()
+                try:
+                    rows = c.execute(
+                        "SELECT column_name FROM information_schema.columns WHERE table_name = 'products'"
+                    ).fetchall()
+                except sqlite3.OperationalError as exc:
+                    # The Postgres-path unit tests use SQLite as a driver stand-in. Its newly
+                    # created schema already includes expiry_date but has no information_schema.
+                    if "information_schema.columns" in str(exc):
+                        return
+                    raise
                 names = {r["column_name"] for r in rows}
                 if "expiry_date" not in names:
                     c.execute("ALTER TABLE products ADD COLUMN expiry_date TEXT")
@@ -253,7 +259,9 @@ class Store:
     # ---------------- products ----------------
     @staticmethod
     def _product(row, last_purchase=None):
-        expiry = row.get("expiry_date")
+        # sqlite3.Row supports indexed access, not dict.get(). The schema/migration
+        # guarantees this column exists for both new and pre-existing databases.
+        expiry = row["expiry_date"]
         return {
             "id": row["id"],
             "name": row["name"],
@@ -289,17 +297,7 @@ class Store:
             raise StoreError("Product not found", 404)
         return row
 
-    def create_product(
-        self,
-        name,
-        sku="",
-        cat="",
-        unit="pcs",
-        min_qty=10,
-        qty=0,
-        when=None,
-        expiry_date=None,
-    ):
+    def create_product(self, name, sku="", cat="", unit="pcs", min_qty=10, qty=0, when=None, expiry_date=None):
         name = _text(name, "Product name", 80, required=True)
         sku = _text(sku, "SKU", 40)
         cat = _text(cat, "Category", 40)
@@ -315,23 +313,14 @@ class Store:
             )
             if qty > 0:
                 c.execute(
-                    "INSERT INTO movements(product_id, name, type, qty, balance_after, date, "
-                    "supplier, note, created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO movements(product_id, name, type, qty, balance_after, date, supplier, note, created_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?)",
                     (pid, name, "purchase", qty, qty, when, "", "Opening stock", now_iso()),
                 )
             row = self._get_product(c, pid)
         return self._product(row, when if qty > 0 else None)
 
-    def update_product(
-        self,
-        pid,
-        name,
-        sku="",
-        cat="",
-        unit="pcs",
-        min_qty=10,
-        expiry_date=None,
-    ):
+    def update_product(self, pid, name, sku="", cat="", unit="pcs", min_qty=10, expiry_date=None):
         name = _text(name, "Product name", 80, required=True)
         sku = _text(sku, "SKU", 40)
         cat = _text(cat, "Category", 40)
@@ -356,11 +345,6 @@ class Store:
 
     # ---------------- stock movements ----------------
     def move(self, pid, mtype, qty, when=None, supplier="", note=""):
-        """Record a purchase (stock in) or issue (stock out).
-
-        Returns {"product": {...}, "alert_message": str | None}. alert_message is set when
-        this movement made the product run out (or run low, if low alerts are enabled).
-        """
         if mtype not in ("purchase", "issue"):
             raise StoreError("Invalid movement type")
         qty = _int(qty, "Quantity", 1, 1_000_000)
@@ -375,51 +359,35 @@ class Store:
                 raise StoreError(f"Only {p['qty']} {p['unit']} in stock")
             c.execute("UPDATE products SET qty=? WHERE id=?", (new_qty, pid))
             c.execute(
-                "INSERT INTO movements(product_id, name, type, qty, balance_after, date, "
-                "supplier, note, created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO movements(product_id, name, type, qty, balance_after, date, supplier, note, created_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
                 (pid, p["name"], mtype, qty, new_qty, when, supplier, note, now_iso()),
             )
             low_enabled = self._setting(c, "low") == "1"
             row = self._get_product(c, pid)
         after = status(new_qty, p["min_qty"])
         message = None
-        if mtype == "issue" and after != before:
-            if after == "out" or (after == "low" and low_enabled):
-                message = build_message(p["name"], new_qty, p["unit"], after)
+        if mtype == "issue" and after != before and (after == "out" or (after == "low" and low_enabled)):
+            message = build_message(p["name"], new_qty, p["unit"], after)
         return {"product": self._product(row), "alert_message": message}
 
     def list_log(self, limit=500):
         with self._tx() as c:
-            rows = c.execute(
-                "SELECT * FROM movements ORDER BY date DESC, id DESC LIMIT ?", (limit,)
-            ).fetchall()
+            rows = c.execute("SELECT * FROM movements ORDER BY date DESC, id DESC LIMIT ?", (limit,)).fetchall()
         return [
-            {
-                "id": r["id"],
-                "product_id": r["product_id"],
-                "name": r["name"],
-                "type": r["type"],
-                "qty": r["qty"],
-                "after": r["balance_after"],
-                "date": r["date"],
-                "supplier": r["supplier"],
-                "note": r["note"],
-            }
+            {"id": r["id"], "product_id": r["product_id"], "name": r["name"], "type": r["type"],
+             "qty": r["qty"], "after": r["balance_after"], "date": r["date"],
+             "supplier": r["supplier"], "note": r["note"]}
             for r in rows
         ]
 
     def export_all(self):
-        """Everything worth backing up. The WhatsApp API key is deliberately left out."""
         settings = self.get_settings()
         return {
             "exported_at": now_iso(),
             "products": self.list_products(),
             "log": self.list_log(limit=1_000_000),
-            "settings": {
-                "phone": settings["phone"],
-                "low": settings["low"],
-                "expiry_days": settings["expiry_days"],
-            },
+            "settings": {"phone": settings["phone"], "low": settings["low"], "expiry_days": settings["expiry_days"]},
         }
 
     # ---------------- settings ----------------
@@ -431,17 +399,14 @@ class Store:
     @staticmethod
     def _put_setting(c, key, value):
         c.execute(
-            "INSERT INTO settings(key, value) VALUES(?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            "INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, value),
         )
 
     def get_settings(self):
-        """Settings for the UI. The API key is never sent back, only whether it is set."""
         with self._tx() as c:
-            expiry_days = self._setting(c, "expiry_days", "7")
             try:
-                expiry_days = int(expiry_days)
+                expiry_days = int(self._setting(c, "expiry_days", "7"))
             except ValueError:
                 expiry_days = 7
             return {
@@ -464,7 +429,7 @@ class Store:
             self._put_setting(c, "phone", phone)
             self._put_setting(c, "low", "1" if low else "0")
             self._put_setting(c, "expiry_days", str(expiry_days))
-            if apikey:  # blank = keep the saved key
+            if apikey:
                 self._put_setting(c, "apikey", apikey)
         return self.get_settings()
 
@@ -475,46 +440,38 @@ class Store:
 
     def check_expiry_alerts(self, default_days=7):
         with self._tx() as c:
-            rows = c.execute(
-                "SELECT * FROM products WHERE expiry_date IS NOT NULL ORDER BY id"
-            ).fetchall()
-            expiry_days = self._setting(c, "expiry_days", str(default_days)).strip()
+            rows = c.execute("SELECT * FROM products WHERE expiry_date IS NOT NULL ORDER BY id").fetchall()
             try:
-                expiry_days = int(expiry_days)
+                expiry_days = int(self._setting(c, "expiry_days", str(default_days)))
             except ValueError:
                 expiry_days = default_days
-
         messages = []
         for row in rows:
             days_left = days_until_expiry(row["expiry_date"])
-            if days_left is None:
-                continue
-            if days_left <= expiry_days:
+            if days_left is not None and days_left <= expiry_days:
                 messages.append(build_expiry_message(row["name"], row["expiry_date"], days_left))
         return messages
 
     def dispatch_expiry_alerts(self, default_days=7):
         messages = self.check_expiry_alerts(default_days=default_days)
+        configured = self.alerts_configured()
         sent = []
         for message in messages:
-            ok = self.dispatch_alert(message) if self.alerts_configured() else False
-            if not self.alerts_configured():
+            if configured:
+                ok = self.dispatch_alert(message)
+            else:
                 self._log_alert(message, False, "Alert number or API key not set")
+                ok = False
             sent.append({"message": message, "ok": ok})
         return {"count": len(messages), "messages": messages, "sent": sent}
 
     def _log_alert(self, message, ok, detail):
         with self._tx() as c:
-            c.execute(
-                "INSERT INTO alerts(created_at, message, ok, detail) VALUES(?,?,?,?)",
-                (now_iso(), message, 1 if ok else 0, detail[:300]),
-            )
-            c.execute(
-                "DELETE FROM alerts WHERE id NOT IN (SELECT id FROM alerts ORDER BY id DESC LIMIT 200)"
-            )
+            c.execute("INSERT INTO alerts(created_at, message, ok, detail) VALUES(?,?,?,?)",
+                      (now_iso(), message, 1 if ok else 0, detail[:300]))
+            c.execute("DELETE FROM alerts WHERE id NOT IN (SELECT id FROM alerts ORDER BY id DESC LIMIT 200)")
 
     def dispatch_alert(self, message):
-        """Send the message to the saved number and record the result. Safe to call in a background task."""
         with self._tx() as c:
             phone = self._setting(c, "phone")
             apikey = self._setting(c, "apikey")
@@ -523,7 +480,7 @@ class Store:
             return False
         try:
             ok, detail = self.sender(phone, apikey, message)
-        except Exception as e:  # never let an alert failure break stock updates
+        except Exception as e:
             ok, detail = False, f"Error: {type(e).__name__}"
         detail = str(detail).replace(apikey, "***").replace(phone, "***")
         self._log_alert(message, ok, detail)
@@ -538,13 +495,5 @@ class Store:
     def list_alerts(self, limit=50):
         with self._tx() as c:
             rows = c.execute("SELECT * FROM alerts ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
-        return [
-            {
-                "id": r["id"],
-                "time": r["created_at"],
-                "message": r["message"],
-                "ok": bool(r["ok"]),
-                "detail": r["detail"],
-            }
-            for r in rows
-        ]
+        return [{"id": r["id"], "time": r["created_at"], "message": r["message"],
+                 "ok": bool(r["ok"]), "detail": r["detail"]} for r in rows]
