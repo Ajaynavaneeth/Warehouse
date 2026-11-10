@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Warehouse Stock Manager</title>
+<style>
+  :root{
+    --bg:#f5f6f8;--card:#fff;--text:#1d2330;--muted:#6b7385;--line:#e3e6ec;
+    --brand:#2457d6;--brand-d:#1b44a8;--ok:#177a3c;--ok-bg:#e3f5e9;
+    --low:#9a6200;--low-bg:#fff1d6;--out:#b42318;--out-bg:#fde4e1;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:15px}
+  header{background:var(--card);border-bottom:1px solid var(--line);padding:14px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:5}
+  h1{font-size:19px;margin:0}
+  main{max-width:1100px;margin:0 auto;padding:20px}
+  .btn{border:1px solid var(--line);background:var(--card);color:var(--text);padding:8px 14px;border-radius:8px;font-size:14px;cursor:pointer}
+  .btn:hover{background:#eef0f4}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+  .btn.primary:hover{background:var(--brand-d)}
+  .btn.sm{padding:5px 10px;font-size:13px}
+  .btn.danger{color:var(--out)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .stat b{display:block;font-size:26px;margin-top:4px}
+  .stat span{color:var(--muted);font-size:13px}
+  .stat.warn b{color:var(--low)} .stat.bad b{color:var(--out)}
+  .alertbar{background:var(--out-bg);border:1px solid #f4b8b1;color:var(--out);border-radius:10px;padding:10px 14px;margin-bottom:16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+  .alertbar[hidden]{display:none}
+  .alertbar .sub{color:#7a2b22;font-size:13px}
+  .tabs{display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--line);overflow-x:auto}
+  .tab{padding:9px 16px;cursor:pointer;border:none;background:none;font-size:15px;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap}
+  .tab.active{color:var(--brand);border-bottom-color:var(--brand);font-weight:600}
+  .toolbar{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+  input,select,textarea{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--text);width:100%}
+  .toolbar input,.toolbar select{width:auto;flex:1;min-width:150px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:auto}
+  table{border-collapse:collapse;width:100%;min-width:640px}
+  th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);background:#fafbfc}
+  tr:last-child td{border-bottom:none}
+  .qty{font-weight:700;font-size:16px}
+  .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
+  .b-ok{background:var(--ok-bg);color:var(--ok)} .b-low{background:var(--low-bg);color:var(--low)} .b-out{background:var(--out-bg);color:var(--out)}
+  .in{color:var(--ok);font-weight:600} .outc{color:var(--out);font-weight:600}
+  .muted{color:var(--muted);font-size:13px}
+  .actions{display:flex;gap:6px;flex-wrap:wrap}
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+  dialog{border:none;border-radius:12px;padding:0;width:min(440px,94vw);box-shadow:0 20px 60px rgba(0,0,0,.25)}
+  dialog::backdrop{background:rgba(20,25,40,.45)}
+  form.dlg{padding:20px;display:grid;gap:12px}
+  form.dlg h2{margin:0;font-size:18px}
+  label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .dlg-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px;flex-wrap:wrap}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1d2330;color:#fff;padding:10px 18px;border-radius:8px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:92vw;text-align:center;z-index:50}
+  .toast.show{opacity:1}
+  .hint{background:#eef3ff;border:1px solid #cfdcff;border-radius:8px;padding:10px 12px;font-size:13px;color:#2a3f78;line-height:1.5}
+  .chk{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text)}
+  .chk input{width:auto}
+  .ok-t{color:var(--ok);font-weight:600} .fail-t{color:var(--out);font-weight:600}
+  .msgcell{white-space:pre-line;max-width:320px}
+  @media(max-width:600px){main{padding:12px}.row2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>📦 Warehouse Stock Manager</h1>
+  <div class="actions">
+    <button class="btn" id="btnAlerts">🔔 WhatsApp alerts</button>
+    <button class="btn" id="btnExport">Export CSV</button>
+    <button class="btn" id="btnBackup">Backup</button>
+    <button class="btn" id="btnLogout">Log out</button>
+    <button class="btn primary" id="btnAdd">+ Add Product</button>
+  </div>
+</header>
+
+<main>
+  <div class="alertbar" id="alertBar" hidden></div>
+  <div class="cards" id="cards"></div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="stock">Current Stock</button>
+    <button class="tab" data-tab="history">Stock History</button>
+    <button class="tab" data-tab="alerts">Alert Log</button>
+  </div>
+
+  <section id="tab-stock">
+    <div class="toolbar">
+      <input id="search" placeholder="Search name, SKU, category…">
+      <select id="filter">
+        <option value="all">All status</option>
+        <option value="in">In stock</option>
+        <option value="low">Low stock</option>
+        <option value="out">Out of stock</option>
+      </select>
+    </div>
+    <div class="panel"><table>
+      <thead><tr><th>Product</th><th>Category</th><th>In stock</th><th>Status</th><th>Last purchased</th><th>Actions</th></tr></thead>
+      <tbody id="stockBody"></tbody>
+    </table><div class="empty" id="stockEmpty" hidden></div></div>
+  </section>
+
+  <section id="tab-history" hidden>
+    <div class="toolbar">
+      <select id="hFilter"><option value="all">All products</option></select>
+      <select id="hType">
+        <option value="all">All movements</option>
+        <option value="purchase">Purchases (stock in)</option>
+        <option value="issue">Stock out</option>
+      </select>
+    </div>
+    <div class="panel"><table>
+      <thead><tr><th>Date</th><th>Product</th><th>Movement</th><th>Qty</th><th>Balance after</th><th>Supplier / Note</th></tr></thead>
+      <tbody id="histBody"></tbody>
+    </table><div class="empty" id="histEmpty" hidden>No movements yet.</div></div>
+  </section>
+
+  <section id="tab-alerts" hidden>
+    <div class="panel"><table>
+      <thead><tr><th>Time</th><th>Message</th><th>Result</th><th>Details</th></tr></thead>
+      <tbody id="alertBody"></tbody>
+    </table><div class="empty" id="alertEmpty" hidden>No alerts sent yet.</div></div>
+  </section>
+</main>
+
+<!-- Login -->
+<dialog id="dlgLogin"><form class="dlg" id="formLogin">
+  <h2>🔒 Log in</h2>
+  <label>Password<input id="lPass" type="password" autocomplete="current-password" required></label>
+  <div class="dlg-actions"><button class="btn primary">Log in</button></div>
+</form></dialog>
+
+<!-- Add / Edit product -->
+<dialog id="dlgProduct"><form class="dlg" id="formProduct">
+  <h2 id="productTitle">Add Product</h2>
+  <label>Product name *<input id="pName" required maxlength="80"></label>
+  <div class="row2">
+    <label>SKU / Code<input id="pSku" maxlength="40"></label>
+    <label>Category<input id="pCat" maxlength="40" placeholder="e.g. Grocery"></label>
+  </div>
+  <div class="row2">
+    <label>Unit<input id="pUnit" value="pcs" maxlength="12"></label>
+    <label>Low-stock level<input id="pMin" type="number" min="0" value="10"></label>
+  </div>
+  <div id="initialBlock" class="row2">
+    <label>Opening quantity<input id="pQty" type="number" min="0" value="0"></label>
+    <label>Purchase date<input id="pDate" type="date"></label>
+  </div>
+  <div class="dlg-actions">
+    <button type="button" class="btn" data-close>Cancel</button>
+    <button class="btn primary">Save</button>
+  </div>
+</form></dialog>
+
+<!-- Restock / Stock out -->
+<dialog id="dlgMove"><form class="dlg" id="formMove">
+  <h2 id="moveTitle"></h2>
+  <div class="hint" id="moveHint"></div>
+  <div class="row2">
+    <label>Quantity *<input id="mQty" type="number" min="1" required></label>
+    <label>Date<input id="mDate" type="date" required></label>
+  </div>
+  <label id="supplierWrap">Supplier<input id="mSupplier" maxlength="80"></label>
+  <label>Note<input id="mNote" maxlength="120"></label>
+  <div class="dlg-actions">
+    <button type="button" class="btn" data-close>Cancel</button>
+    <button class="btn primary" id="moveSave">Save</button>
+  </div>
+</form></dialog>
+
+<!-- WhatsApp alert settings -->
+<dialog id="dlgSettings"><form class="dlg" id="formSettings">
+  <h2>🔔 WhatsApp alerts</h2>
+  <div class="hint">
+    A WhatsApp message is sent automatically when a product runs out. One-time setup (free):
+    <ol style="margin:6px 0 0;padding-left:18px">
+      <li>Open <strong>callmebot.com</strong> and follow its WhatsApp setup (save the bot's number, send it the activation message).</li>
+      <li>The bot replies with an <strong>API key</strong>. Enter it below with the same mobile number.</li>
+    </ol>
+  </div>
+  <label>WhatsApp number (with country code) *<input id="sPhone" type="tel" placeholder="e.g. 9876543210 or +919876543210" maxlength="25"></label>
+  <label>CallMeBot API key<input id="sKey" type="password" autocomplete="off" maxlength="40"></label>
+  <label class="chk"><input type="checkbox" id="sLow"> Also alert me when stock is low</label>
+  <div class="dlg-actions">
+    <button type="button" class="btn" data-close>Close</button>
+    <button type="button" class="btn" id="btnTest">Save &amp; send test</button>
+    <button class="btn primary">Save</button>
+  </div>
+</form></dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  const TOKEN_KEY = "wsm_token";
+  let token = ""; try{ token = localStorage.getItem(TOKEN_KEY) || ""; }catch(e){}
+  let state = {products:[], log:[], alerts:[], settings:{phone:"", low:false, apikey_set:false}};
+  let moveCtx = null, editId = null;
+
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const today = () => { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+  const fmtDate = s => { if(!s) return "—"; const [y,m,d]=s.split("-"); return new Date(y,m-1,d).toLocaleDateString(undefined,{day:"2-digit",month:"short",year:"numeric"}); };
+  const fmtTime = s => { const d=new Date(s); return isNaN(d) ? s : d.toLocaleString(undefined,{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); };
+  const find = id => state.products.find(p => p.id===id);
+  const label = {in:"In stock",low:"Low stock",out:"Out of stock"};
+  const cls = {in:"b-ok",low:"b-low",out:"b-out"};
+  const alertsOn = () => !!(state.settings.phone && state.settings.apikey_set);
+
+  /* ---------- API ---------- */
+  async function api(path, method, body){
+    const headers = {"Content-Type":"application/json"};
+    if(token) headers.Authorization = "Bearer " + token;
+    let r;
+    try{ r = await fetch("/api"+path, {method:method||"GET", headers, body: body?JSON.stringify(body):undefined}); }
+    catch(e){ throw new Error("Cannot reach the server. Check that it is running."); }
+    let data = null; try{ data = await r.json(); }catch(e){}
+    if(r.status===401 && path!=="/login"){ showLogin(); const e=new Error("login"); e.silent=true; throw e; }
+    if(!r.ok){
+      const d = data && data.detail;
+      throw new Error(typeof d==="string" ? d : Array.isArray(d) ? "Please check the values you entered" : "Request failed ("+r.status+")");
+    }
+    return data;
+  }
+  async function run(fn){
+    try{ await fn(); }catch(e){ if(!e.silent) toast(e.message || "Something went wrong"); }
+  }
+  async function loadAll(){
+    const [products, log, alerts, settings] = await Promise.all([
+      api("/products"), api("/log"), api("/alerts"), api("/settings")]);
+    state = {products, log, alerts, settings};
+    render();
+  }
+
+  /* ---------- login ---------- */
+  function showLogin(){
+    token = ""; try{ localStorage.removeItem(TOKEN_KEY); }catch(e){}
+    $("#lPass").value = "";
+    if(!$("#dlgLogin").open) $("#dlgLogin").showModal();
+  }
+  $("#dlgLogin").addEventListener("cancel", e=>e.preventDefault());
+  $("#formLogin").addEventListener("submit", e=>{
+    e.preventDefault();
+    run(async()=>{
+      const r = await api("/login","POST",{password:$("#lPass").value});
+      token = r.token; try{ localStorage.setItem(TOKEN_KEY, token); }catch(_){}
+      $("#dlgLogin").close();
+      await loadAll();
+    });
+  });
+  $("#btnLogout").onclick = ()=>{ state = {products:[],log:[],alerts:[],settings:{phone:"",low:false,apikey_set:false}}; render(); showLogin(); };
+
+  /* ---------- render ---------- */
+  function render(){
+    const P = state.products;
+    $("#cards").innerHTML =
+      `<div class="stat"><span>Products</span><b>${P.length}</b></div>
+       <div class="stat"><span>Total units in stock</span><b>${P.reduce((s,p)=>s+p.qty,0)}</b></div>
+       <div class="stat warn"><span>Low stock</span><b>${P.filter(p=>p.status==="low").length}</b></div>
+       <div class="stat bad"><span>Out of stock</span><b>${P.filter(p=>p.status==="out").length}</b></div>`;
+
+    // banner
+    const need = P.filter(p => p.status==="out" || (state.settings.low && p.status==="low"));
+    const bar = $("#alertBar");
+    bar.hidden = need.length===0;
+    if(need.length){
+      bar.innerHTML = `<div><div>⚠ ${need.length} product${need.length>1?"s":""} need${need.length>1?"":"s"} attention: <strong>${esc(need.map(p=>p.name).join(", "))}</strong></div>
+        <div class="sub">${alertsOn() ? "WhatsApp alerts are switched on." : "WhatsApp alerts are not set up yet."}</div></div>
+        ${alertsOn() ? "" : '<button class="btn sm primary" id="btnSetup">Set up alerts</button>'}`;
+    }
+
+    // stock table
+    const q = $("#search").value.trim().toLowerCase(), f = $("#filter").value;
+    const order = {out:0,low:1,in:2};
+    const rows = P.filter(p => (!q || [p.name,p.sku,p.cat].join(" ").toLowerCase().includes(q)) && (f==="all" || p.status===f))
+      .sort((a,b)=> order[a.status]-order[b.status] || a.name.localeCompare(b.name));
+    $("#stockBody").innerHTML = rows.map(p=>`<tr>
+        <td><strong>${esc(p.name)}</strong><div class="muted">${esc(p.sku)}</div></td>
+        <td>${esc(p.cat||"—")}</td>
+        <td><span class="qty">${p.qty}</span> <span class="muted">${esc(p.unit)}</span></td>
+        <td><span class="badge ${cls[p.status]}">${label[p.status]}</span></td>
+        <td>${fmtDate(p.last_purchase)}</td>
+        <td><div class="actions">
+          <button class="btn sm primary" data-act="buy" data-id="${p.id}">+ Restock</button>
+          <button class="btn sm" data-act="issue" data-id="${p.id}" ${p.qty<=0?"disabled":""}>− Stock out</button>
+          <button class="btn sm" data-act="edit" data-id="${p.id}">Edit</button>
+          <button class="btn sm danger" data-act="del" data-id="${p.id}">Delete</button>
+        </div></td></tr>`).join("");
+    const empty = $("#stockEmpty");
+    empty.hidden = rows.length>0;
+    if(!rows.length) empty.textContent = P.length ? "No products match your search." : "No products yet. Click “+ Add Product” to start.";
+
+    // history filter
+    const hSel = $("#hFilter"), cur = hSel.value;
+    hSel.innerHTML = '<option value="all">All products</option>' + P.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("");
+    hSel.value = P.some(p=>String(p.id)===cur) ? cur : "all";
+    renderHistory();
+    renderAlerts();
+  }
+  function renderHistory(){
+    const pf = $("#hFilter").value, tf = $("#hType").value;
+    const rows = state.log.filter(l => (pf==="all" || String(l.product_id)===pf) && (tf==="all" || (tf==="purchase" ? l.type==="purchase" : l.type!=="purchase")));
+    $("#histBody").innerHTML = rows.map(l=>{
+      const isIn = l.type==="purchase";
+      const note = [l.supplier, l.note].filter(Boolean).map(esc).join(" · ") || "—";
+      return `<tr><td>${fmtDate(l.date)}</td><td>${esc(l.name)}</td>
+        <td>${isIn?'<span class="in">Stock in (purchase)</span>':'<span class="outc">Stock out</span>'}</td>
+        <td class="${isIn?"in":"outc"}">${isIn?"+":"−"}${l.qty}</td><td>${l.after}</td><td class="muted">${note}</td></tr>`;
+    }).join("");
+    $("#histEmpty").hidden = rows.length>0;
+  }
+  function renderAlerts(){
+    $("#alertBody").innerHTML = state.alerts.map(a=>`<tr>
+      <td>${fmtTime(a.time)}</td><td class="msgcell">${esc(a.message)}</td>
+      <td>${a.ok?'<span class="ok-t">Sent</span>':'<span class="fail-t">Failed</span>'}</td>
+      <td class="muted">${esc(a.detail)}</td></tr>`).join("");
+    $("#alertEmpty").hidden = state.alerts.length>0;
+  }
+
+  /* ---------- product dialog ---------- */
+  function openProduct(id){
+    editId = id || null;
+    const p = id ? find(id) : null;
+    $("#productTitle").textContent = p ? "Edit Product" : "Add Product";
+    $("#pName").value = p ? p.name : ""; $("#pSku").value = p ? p.sku : ""; $("#pCat").value = p ? p.cat : "";
+    $("#pUnit").value = p ? p.unit : "pcs"; $("#pMin").value = p ? p.min : 10;
+    $("#pQty").value = 0; $("#pDate").value = today();
+    $("#initialBlock").hidden = !!p;
+    $("#dlgProduct").showModal();
+  }
+  $("#formProduct").addEventListener("submit", e=>{
+    e.preventDefault();
+    const body = {name:$("#pName").value.trim(), sku:$("#pSku").value.trim(), cat:$("#pCat").value.trim(),
+      unit:$("#pUnit").value.trim()||"pcs", min:parseInt($("#pMin").value)||0,
+      qty:parseInt($("#pQty").value)||0, date:$("#pDate").value||null};
+    run(async()=>{
+      if(editId) await api("/products/"+editId,"PUT",body); else await api("/products","POST",body);
+      $("#dlgProduct").close(); toast(editId?"Product updated":"Product added");
+      await loadAll();
+    });
+  });
+
+  /* ---------- restock / stock out ---------- */
+  function openMove(id,type){
+    const p = find(id); moveCtx = {id,type};
+    const buy = type==="purchase";
+    $("#moveTitle").textContent = (buy?"Restock: ":"Stock out: ") + p.name;
+    $("#moveHint").textContent = `Current stock: ${p.qty} ${p.unit}` + (buy && p.qty<=0 ? " — this product is finished. Record your new purchase below." : "");
+    $("#mQty").value = ""; $("#mQty").max = buy ? "" : p.qty;
+    $("#mDate").value = today(); $("#mSupplier").value = ""; $("#mNote").value = "";
+    $("#supplierWrap").hidden = !buy;
+    $("#moveSave").textContent = buy ? "Add stock" : "Remove stock";
+    $("#dlgMove").showModal();
+  }
+  $("#formMove").addEventListener("submit", e=>{
+    e.preventDefault();
+    const p = find(moveCtx.id), qty = parseInt($("#mQty").value), buy = moveCtx.type==="purchase";
+    if(!qty || qty<1){ toast("Enter a valid quantity"); return; }
+    if(!buy && qty>p.qty){ toast("Quantity exceeds stock on hand"); return; }
+    run(async()=>{
+      const r = await api("/products/"+p.id+"/move","POST",{type:moveCtx.type, qty, date:$("#mDate").value||null,
+        supplier: buy?$("#mSupplier").value.trim():"", note:$("#mNote").value.trim()});
+      $("#dlgMove").close();
+      let msg = buy ? `Added ${qty} ${p.unit} to ${p.name}` : `Removed ${qty} ${p.unit} from ${p.name}`;
+      if(r.alert==="queued") msg += " · WhatsApp alert is being sent";
+      if(r.alert==="not_configured") msg += " · set up WhatsApp alerts to be notified";
+      toast(msg);
+      await loadAll();
+      if(r.alert) setTimeout(()=>run(async()=>{ state.alerts = await api("/alerts"); renderAlerts(); }), 4000);
+    });
+  });
+
+  /* ---------- alert settings ---------- */
+  function normPhone(v){
+    v = String(v||"").replace(/[\s\-()]/g,"");
+    if(!v) return "";
+    if(v.startsWith("+")) return v;
+    const d = v.replace(/\D/g,"");
+    return d.length===10 ? "+91"+d : "+"+d;
+  }
+  function openSettings(){
+    $("#sPhone").value = state.settings.phone || "";
+    $("#sKey").value = ""; $("#sKey").placeholder = state.settings.apikey_set ? "Saved — leave blank to keep" : "Key from CallMeBot";
+    $("#sLow").checked = !!state.settings.low;
+    $("#dlgSettings").showModal();
+  }
+  async function saveSettings(){
+    const phone = normPhone($("#sPhone").value);
+    if(!phone){ throw new Error("Enter the WhatsApp number"); }
+    const key = $("#sKey").value.trim();
+    if(!key && !state.settings.apikey_set){ throw new Error("Enter the API key from CallMeBot"); }
+    state.settings = await api("/settings","PUT",{phone, apikey:key||null, low:$("#sLow").checked});
+    $("#sPhone").value = state.settings.phone; $("#sKey").value = ""; $("#sKey").placeholder = "Saved — leave blank to keep";
+    render();
+  }
+  $("#formSettings").addEventListener("submit", e=>{
+    e.preventDefault();
+    run(async()=>{ await saveSettings(); $("#dlgSettings").close(); toast("Alert settings saved"); });
+  });
+  $("#btnTest").onclick = ()=>run(async()=>{
+    await saveSettings();
+    const b = $("#btnTest"); b.disabled = true; b.textContent = "Sending…";
+    try{
+      const r = await api("/alerts/test","POST");
+      toast(r.ok ? "Test sent — check your WhatsApp" : "Test failed: " + (r.detail || "unknown error"));
+      state.alerts = await api("/alerts"); renderAlerts();
+    } finally { b.disabled = false; b.textContent = "Save & send test"; }
+  });
+  $("#btnAlerts").onclick = openSettings;
+  $("#alertBar").addEventListener("click", e=>{ if(e.target.closest("#btnSetup")) openSettings(); });
+
+  /* ---------- events ---------- */
+  $("#btnAdd").onclick = ()=>openProduct();
+  document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>b.closest("dialog").close());
+  $("#stockBody").addEventListener("click", e=>{
+    const b = e.target.closest("button[data-act]"); if(!b) return;
+    const id = parseInt(b.dataset.id), a = b.dataset.act;
+    if(a==="buy") openMove(id,"purchase");
+    else if(a==="issue") openMove(id,"issue");
+    else if(a==="edit") openProduct(id);
+    else if(a==="del"){
+      const p = find(id);
+      if(confirm(`Delete “${p.name}” and all its history? This cannot be undone.`))
+        run(async()=>{ await api("/products/"+id,"DELETE"); toast("Product deleted"); await loadAll(); });
+    }
+  });
+  ["#search","#filter"].forEach(s=>$(s).addEventListener("input",render));
+  ["#hFilter","#hType"].forEach(s=>$(s).addEventListener("input",renderHistory));
+  document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
+    document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===t));
+    ["stock","history","alerts"].forEach(n=>$("#tab-"+n).hidden = t.dataset.tab!==n);
+    if(t.dataset.tab==="alerts") run(async()=>{ state.alerts = await api("/alerts"); renderAlerts(); });
+  });
+
+  /* ---------- CSV ---------- */
+  const csvCell = v => { v=String(v==null?"":v); if(/^[=+\-@]/.test(v)) v="'"+v; return '"'+v.replace(/"/g,'""')+'"'; };
+  $("#btnExport").onclick = ()=>{
+    const rows = [["Product","SKU","Category","Quantity","Unit","Status","Last purchased"]];
+    state.products.forEach(p=>rows.push([p.name,p.sku,p.cat,p.qty,p.unit,label[p.status],p.last_purchase||""]));
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([rows.map(r=>r.map(csvCell).join(",")).join("\n")],{type:"text/csv"}));
+    a.download = "stock-"+today()+".csv"; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  };
+
+  $("#btnBackup").onclick = ()=>run(async()=>{
+    const data = await api("/backup");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
+    a.download = "warehouse-backup-"+today()+".json"; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    toast("Backup downloaded — keep it somewhere safe");
+  });
+
+  let tt;
+  function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(tt); tt=setTimeout(()=>t.classList.remove("show"),3200); }
+
+  /* ---------- start ---------- */
+  render();
+  if(token) run(loadAll); else showLogin();
+})();
+</script>
+</body>
+</html>
