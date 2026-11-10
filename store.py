@@ -34,7 +34,8 @@ SCHEMA_SQLITE = [
       cat TEXT NOT NULL DEFAULT '',
       unit TEXT NOT NULL DEFAULT 'pcs',
       min_qty INTEGER NOT NULL DEFAULT 10,
-      qty INTEGER NOT NULL DEFAULT 0 CHECK(qty >= 0)
+      qty INTEGER NOT NULL DEFAULT 0 CHECK(qty >= 0),
+      expiry_date TEXT DEFAULT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS movements(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,6 +85,16 @@ def status(qty, min_qty):
     return "in"
 
 
+def days_until_expiry(value):
+    if not value:
+        return None
+    try:
+        expiry = date.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return (expiry - date.today()).days
+
+
 def _text(value, field, maxlen, required=False):
     value = (value or "").strip()
     if required and not value:
@@ -112,12 +123,26 @@ def _date(value):
         raise StoreError("Date must look like 2026-11-09")
 
 
+def _expiry_date(value):
+    if value in (None, ""):
+        return None
+    return _date(value)
+
+
 def build_message(name, qty, unit, state):
     if state == "out":
         line = f"{name} is OUT OF STOCK"
     else:
         line = f"{name} is running low: {qty} {unit} left"
     return f"⚠ Warehouse stock alert\n{line}.\nPlease reorder."
+
+
+def build_expiry_message(name, expiry_date, days_left):
+    if days_left < 0:
+        return f"⚠ Product expiry alert\n{name} expired on {expiry_date}. Please check stock and remove or replace it."
+    if days_left == 0:
+        return f"⚠ Product expiry alert\n{name} expires today ({expiry_date}). Please check stock."
+    return f"⚠ Product expiry alert\n{name} expires in {days_left} day(s) on {expiry_date}. Please check stock."
 
 
 def send_whatsapp(phone, apikey, text, timeout=15):
@@ -174,6 +199,7 @@ class Store:
         with self._tx() as c:
             for statement in (SCHEMA_PG if self.pg else SCHEMA_SQLITE):
                 c.execute(statement)
+        self._ensure_products_columns()
         if not self.pg:
             conn = sqlite3.connect(self.target, timeout=10)
             try:
@@ -181,11 +207,24 @@ class Store:
             finally:
                 conn.close()
 
+    def _ensure_products_columns(self):
+        with self._tx() as c:
+            if self.pg:
+                rows = c.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'products'"
+                ).fetchall()
+                names = {r["column_name"] for r in rows}
+                if "expiry_date" not in names:
+                    c.execute("ALTER TABLE products ADD COLUMN expiry_date TEXT")
+            else:
+                rows = c.execute("PRAGMA table_info(products)").fetchall()
+                names = {r["name"] for r in rows}
+                if "expiry_date" not in names:
+                    c.execute("ALTER TABLE products ADD COLUMN expiry_date TEXT")
+
     @contextmanager
     def _tx(self):
         if self.pg:
-            # A fresh connection per request keeps this working with Neon, which pauses
-            # idle databases. prepare_threshold=None also makes it safe behind a pooler.
             raw = psycopg.connect(
                 self.target, row_factory=dict_row, connect_timeout=30, prepare_threshold=None
             )
@@ -214,6 +253,7 @@ class Store:
     # ---------------- products ----------------
     @staticmethod
     def _product(row, last_purchase=None):
+        expiry = row.get("expiry_date")
         return {
             "id": row["id"],
             "name": row["name"],
@@ -222,6 +262,8 @@ class Store:
             "unit": row["unit"],
             "min": row["min_qty"],
             "qty": row["qty"],
+            "expiry_date": expiry,
+            "days_to_expiry": days_until_expiry(expiry),
             "status": status(row["qty"], row["min_qty"]),
             "last_purchase": last_purchase,
         }
@@ -241,13 +283,23 @@ class Store:
     def _get_product(self, c, pid, lock=False):
         sql = "SELECT * FROM products WHERE id=?"
         if lock and c.pg:
-            sql += " FOR UPDATE"  # SQLite already locks the whole database in BEGIN IMMEDIATE
+            sql += " FOR UPDATE"
         row = c.execute(sql, (pid,)).fetchone()
         if not row:
             raise StoreError("Product not found", 404)
         return row
 
-    def create_product(self, name, sku="", cat="", unit="pcs", min_qty=10, qty=0, when=None):
+    def create_product(
+        self,
+        name,
+        sku="",
+        cat="",
+        unit="pcs",
+        min_qty=10,
+        qty=0,
+        when=None,
+        expiry_date=None,
+    ):
         name = _text(name, "Product name", 80, required=True)
         sku = _text(sku, "SKU", 40)
         cat = _text(cat, "Category", 40)
@@ -255,10 +307,11 @@ class Store:
         min_qty = _int(min_qty, "Low-stock level", 0, 1_000_000)
         qty = _int(qty, "Opening quantity", 0, 1_000_000)
         when = _date(when)
+        expiry_date = _expiry_date(expiry_date)
         with self._tx() as c:
             pid = c.insert(
-                "INSERT INTO products(name, sku, cat, unit, min_qty, qty) VALUES(?,?,?,?,?,?)",
-                (name, sku, cat, unit, min_qty, qty),
+                "INSERT INTO products(name, sku, cat, unit, min_qty, qty, expiry_date) VALUES(?,?,?,?,?,?,?)",
+                (name, sku, cat, unit, min_qty, qty, expiry_date),
             )
             if qty > 0:
                 c.execute(
@@ -269,17 +322,27 @@ class Store:
             row = self._get_product(c, pid)
         return self._product(row, when if qty > 0 else None)
 
-    def update_product(self, pid, name, sku="", cat="", unit="pcs", min_qty=10):
+    def update_product(
+        self,
+        pid,
+        name,
+        sku="",
+        cat="",
+        unit="pcs",
+        min_qty=10,
+        expiry_date=None,
+    ):
         name = _text(name, "Product name", 80, required=True)
         sku = _text(sku, "SKU", 40)
         cat = _text(cat, "Category", 40)
         unit = _text(unit, "Unit", 12) or "pcs"
         min_qty = _int(min_qty, "Low-stock level", 0, 1_000_000)
+        expiry_date = _expiry_date(expiry_date)
         with self._tx() as c:
             self._get_product(c, pid, lock=True)
             c.execute(
-                "UPDATE products SET name=?, sku=?, cat=?, unit=?, min_qty=? WHERE id=?",
-                (name, sku, cat, unit, min_qty, pid),
+                "UPDATE products SET name=?, sku=?, cat=?, unit=?, min_qty=?, expiry_date=? WHERE id=?",
+                (name, sku, cat, unit, min_qty, expiry_date, pid),
             )
             c.execute("UPDATE movements SET name=? WHERE product_id=?", (name, pid))
             row = self._get_product(c, pid)
@@ -352,7 +415,11 @@ class Store:
             "exported_at": now_iso(),
             "products": self.list_products(),
             "log": self.list_log(limit=1_000_000),
-            "settings": {"phone": settings["phone"], "low": settings["low"]},
+            "settings": {
+                "phone": settings["phone"],
+                "low": settings["low"],
+                "expiry_days": settings["expiry_days"],
+            },
         }
 
     # ---------------- settings ----------------
@@ -372,13 +439,19 @@ class Store:
     def get_settings(self):
         """Settings for the UI. The API key is never sent back, only whether it is set."""
         with self._tx() as c:
+            expiry_days = self._setting(c, "expiry_days", "7")
+            try:
+                expiry_days = int(expiry_days)
+            except ValueError:
+                expiry_days = 7
             return {
                 "phone": self._setting(c, "phone"),
                 "low": self._setting(c, "low") == "1",
+                "expiry_days": expiry_days,
                 "apikey_set": bool(self._setting(c, "apikey")),
             }
 
-    def update_settings(self, phone, apikey=None, low=False):
+    def update_settings(self, phone, apikey=None, low=False, expiry_days=7):
         phone = re.sub(r"[\s\-()]", "", phone or "")
         if phone and not PHONE_RE.match(phone):
             raise StoreError("Enter the mobile number with country code, like +919876543210")
@@ -386,9 +459,11 @@ class Store:
             apikey = apikey.strip()
             if apikey and not APIKEY_RE.match(apikey):
                 raise StoreError("That API key does not look right")
+        expiry_days = _int(expiry_days, "Expiry alert days", 0, 365)
         with self._tx() as c:
             self._put_setting(c, "phone", phone)
             self._put_setting(c, "low", "1" if low else "0")
+            self._put_setting(c, "expiry_days", str(expiry_days))
             if apikey:  # blank = keep the saved key
                 self._put_setting(c, "apikey", apikey)
         return self.get_settings()
@@ -398,13 +473,42 @@ class Store:
         with self._tx() as c:
             return bool(self._setting(c, "phone") and self._setting(c, "apikey"))
 
+    def check_expiry_alerts(self, default_days=7):
+        with self._tx() as c:
+            rows = c.execute(
+                "SELECT * FROM products WHERE expiry_date IS NOT NULL ORDER BY id"
+            ).fetchall()
+            expiry_days = self._setting(c, "expiry_days", str(default_days)).strip()
+            try:
+                expiry_days = int(expiry_days)
+            except ValueError:
+                expiry_days = default_days
+
+        messages = []
+        for row in rows:
+            days_left = days_until_expiry(row["expiry_date"])
+            if days_left is None:
+                continue
+            if days_left <= expiry_days:
+                messages.append(build_expiry_message(row["name"], row["expiry_date"], days_left))
+        return messages
+
+    def dispatch_expiry_alerts(self, default_days=7):
+        messages = self.check_expiry_alerts(default_days=default_days)
+        sent = []
+        for message in messages:
+            ok = self.dispatch_alert(message) if self.alerts_configured() else False
+            if not self.alerts_configured():
+                self._log_alert(message, False, "Alert number or API key not set")
+            sent.append({"message": message, "ok": ok})
+        return {"count": len(messages), "messages": messages, "sent": sent}
+
     def _log_alert(self, message, ok, detail):
         with self._tx() as c:
             c.execute(
                 "INSERT INTO alerts(created_at, message, ok, detail) VALUES(?,?,?,?)",
                 (now_iso(), message, 1 if ok else 0, detail[:300]),
             )
-            # keep the log small
             c.execute(
                 "DELETE FROM alerts WHERE id NOT IN (SELECT id FROM alerts ORDER BY id DESC LIMIT 200)"
             )
