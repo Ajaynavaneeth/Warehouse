@@ -1,15 +1,18 @@
-"""Warehouse stock logic: database storage (SQLite or Postgres) + WhatsApp alert dispatch.
+"""Warehouse stock logic: database storage (SQLite or Postgres) + alert dispatch.
 
 Pass a file path to Store() to use SQLite, or a postgres:// URL to use Postgres
 (for hosting, e.g. Neon). Everything else in the app is identical for both.
 """
+import os
 import re
+import smtplib
 import sqlite3
 import urllib.error
 import urllib.parse
 import urllib.request
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
+from email.message import EmailMessage
 
 try:  # only needed when a postgres:// URL is used
     import psycopg
@@ -71,6 +74,7 @@ SCHEMA_PG = [
 
 PHONE_RE = re.compile(r"^\+\d{8,15}$")
 APIKEY_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 
 
 def now_iso():
@@ -145,6 +149,30 @@ def build_expiry_message(name, expiry_date, days_left):
     return f"⚠ Product expiry alert\n{name} expires in {days_left} day(s) on {expiry_date}. Please check stock."
 
 
+def send_email(email_to, smtp_password, text, timeout=15):
+    """Send an alert by email via SMTP. Intended for personal free email accounts (Gmail, Outlook)."""
+    sender = os.environ.get("SMTP_FROM") or os.environ.get("SMTP_USER")
+    host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    port = int(os.environ.get("SMTP_PORT", "587"))
+    email_to = email_to or os.environ.get("ALERT_EMAIL_TO") or os.environ.get("EMAIL_TO")
+    smtp_password = smtp_password or os.environ.get("SMTP_PASS") or os.environ.get("SMTP_PASSWORD")
+    if not sender or not email_to or not smtp_password:
+        return False, "SMTP email is not configured"
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = "Warehouse alert"
+        msg["From"] = sender
+        msg["To"] = email_to
+        msg.set_content(text)
+        with smtplib.SMTP(host, port, timeout=timeout) as server:
+            server.starttls()
+            server.login(sender, smtp_password)
+            server.send_message(msg)
+        return True, "Email sent"
+    except Exception as exc:  # pragma: no cover - depends on environment
+        return False, f"Email error: {type(exc).__name__}: {exc}"
+
+
 def send_whatsapp(phone, apikey, text, timeout=15):
     """Send a WhatsApp message through the free CallMeBot API. Returns (ok, detail)."""
     query = urllib.parse.urlencode(
@@ -194,7 +222,15 @@ class Store:
                 "DATABASE_URL points to Postgres but the 'psycopg' package is not installed. "
                 "Run: pip install -r requirements.txt"
             )
-        self.sender = sender or send_whatsapp
+        if sender is None:
+            smtp_ready = bool(
+                os.environ.get("SMTP_HOST")
+                and os.environ.get("SMTP_USER")
+                and (os.environ.get("SMTP_PASS") or os.environ.get("SMTP_PASSWORD"))
+            )
+            self.sender = send_email if smtp_ready else send_whatsapp
+        else:
+            self.sender = sender
         with self._tx() as c:
             for statement in (SCHEMA_PG if self.pg else SCHEMA_SQLITE):
                 c.execute(statement)
@@ -417,13 +453,18 @@ class Store:
             }
 
     def update_settings(self, phone, apikey=None, low=False, expiry_days=7):
-        phone = re.sub(r"[\s\-()]", "", phone or "")
-        if phone and not PHONE_RE.match(phone):
-            raise StoreError("Enter the mobile number with country code, like +919876543210")
+        phone = (phone or "").strip()
+        if phone and "@" in phone:
+            if not EMAIL_RE.match(phone):
+                raise StoreError("Enter a valid email address")
+        else:
+            phone = re.sub(r"[\s\-()]", "", phone)
+            if phone and not PHONE_RE.match(phone):
+                raise StoreError("Enter the mobile number with country code, like +919876543210")
         if apikey is not None:
             apikey = apikey.strip()
             if apikey and not APIKEY_RE.match(apikey):
-                raise StoreError("That API key does not look right")
+                raise StoreError("That Gmail app password does not look right")
         expiry_days = _int(expiry_days, "Expiry alert days", 0, 365)
         with self._tx() as c:
             self._put_setting(c, "phone", phone)
@@ -436,7 +477,16 @@ class Store:
     # ---------------- alerts ----------------
     def alerts_configured(self):
         with self._tx() as c:
-            return bool(self._setting(c, "phone") and self._setting(c, "apikey"))
+            phone = self._setting(c, "phone")
+            apikey = self._setting(c, "apikey")
+        smtp_ready = bool(
+            os.environ.get("SMTP_HOST")
+            and os.environ.get("SMTP_USER")
+            and (os.environ.get("SMTP_PASS") or os.environ.get("SMTP_PASSWORD"))
+        )
+        if smtp_ready:
+            return True
+        return bool(phone and apikey)
 
     def check_expiry_alerts(self, default_days=7):
         with self._tx() as c:
@@ -460,7 +510,7 @@ class Store:
             if configured:
                 ok = self.dispatch_alert(message)
             else:
-                self._log_alert(message, False, "Alert number or API key not set")
+                self._log_alert(message, False, "Email alerts are not configured")
                 ok = False
             sent.append({"message": message, "ok": ok})
         return {"count": len(messages), "messages": messages, "sent": sent}
@@ -475,6 +525,24 @@ class Store:
         with self._tx() as c:
             phone = self._setting(c, "phone")
             apikey = self._setting(c, "apikey")
+        smtp_ready = bool(
+            os.environ.get("SMTP_HOST")
+            and os.environ.get("SMTP_USER")
+            and (os.environ.get("SMTP_PASS") or os.environ.get("SMTP_PASSWORD"))
+        )
+        if smtp_ready:
+            target = phone if "@" in str(phone) else os.environ.get("ALERT_EMAIL_TO") or os.environ.get("EMAIL_TO")
+            key = apikey or os.environ.get("SMTP_PASS") or os.environ.get("SMTP_PASSWORD") or ""
+            if not target or not key:
+                self._log_alert(message, False, "Email alert is not configured")
+                return False
+            try:
+                ok, detail = self.sender(target, key, message)
+            except Exception as e:
+                ok, detail = False, f"Error: {type(e).__name__}"
+            detail = str(detail).replace(key, "***").replace(str(target), "***")
+            self._log_alert(message, ok, detail)
+            return ok
         if not phone or not apikey:
             self._log_alert(message, False, "Alert number or API key not set")
             return False
@@ -497,3 +565,7 @@ class Store:
             rows = c.execute("SELECT * FROM alerts ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         return [{"id": r["id"], "time": r["created_at"], "message": r["message"],
                  "ok": bool(r["ok"]), "detail": r["detail"]} for r in rows]
+
+
+# Backwards compatibility for older code that imports the original helper name
+send_whatsapp = send_whatsapp
